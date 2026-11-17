@@ -396,12 +396,14 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <input name="webdav_url" placeholder="WebDAV URL (необяз.)" style="min-width:200px">
 <input name="webdav_user" placeholder="WebDAV логин" style="width:130px">
 <input name="webdav_pass" placeholder="WebDAV пароль" style="width:130px">
+<input name="interval_hours" placeholder="интервал, ч (0=вручную)" style="width:180px">
 <button>Создать задание</button>
 </form>
-<table><tr><th>Задание</th><th>Источник</th><th>Цели</th><th>Последний запуск</th><th></th></tr>
+<table><tr><th>Задание</th><th>Источник</th><th>Цели</th><th>Расписание</th><th>Последний запуск</th><th></th></tr>
 {{range .Jobs}}<tr>
 <td>{{.Name}}</td><td class="muted">{{.Source}}</td>
 <td>{{range .Targets}}{{.Type}}: {{if eq .Type "local"}}{{.Path}}{{else}}{{.URL}}{{end}}<br>{{end}}</td>
+<td>{{if .IntervalHours}}каждые {{.IntervalHours}} ч{{else}}вручную{{end}}</td>
 <td>{{if .LastRun.IsZero}}—{{else}}{{fmtTime .LastRun}}{{end}}
 {{with index $.Reports .ID}}<br><span class="muted">файлов: {{.Files}}, байт: {{.Bytes}}, пропущено: {{.Skipped}}, ошибок: {{len .Errors}}</span>{{end}}</td>
 <td>

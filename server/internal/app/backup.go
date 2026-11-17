@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,7 +52,8 @@ func (a *App) handleBackupPage(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 			name := strings.TrimSpace(r.PostFormValue("name"))
-			if _, err := a.backups.Create(name, src, targets); err != nil {
+			interval, _ := strconv.Atoi(r.PostFormValue("interval_hours"))
+			if _, err := a.backups.Create(name, src, targets, interval); err != nil {
 				a.store.Audit(u.Name, "backup_create_failed", err.Error())
 			} else {
 				a.store.Audit(u.Name, "backup_create", name+" -> "+src)
@@ -85,9 +87,10 @@ func (a *App) handleBackupPage(w http.ResponseWriter, r *http.Request) {
 }
 
 type backupCreateRequest struct {
-	Name    string          `json:"name"`
-	Source  string          `json:"source"`
-	Targets []backup.Target `json:"targets"`
+	Name          string          `json:"name"`
+	Source        string          `json:"source"`
+	Targets       []backup.Target `json:"targets"`
+	IntervalHours int             `json:"interval_hours"`
 }
 
 func (a *App) handleBackupJobsAPI(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +104,7 @@ func (a *App) handleBackupJobsAPI(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var req backupCreateRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		job, err := a.backups.Create(req.Name, req.Source, req.Targets)
+		job, err := a.backups.Create(req.Name, req.Source, req.Targets, req.IntervalHours)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

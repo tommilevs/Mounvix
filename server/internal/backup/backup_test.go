@@ -30,7 +30,7 @@ func TestLocalBackupAndIncremental(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	job, err := m.Create("test", src, []Target{{Type: "local", Path: dst}})
+	job, err := m.Create("test", src, []Target{{Type: "local", Path: dst}}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestWebDAVTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, _ := New(t.TempDir())
-	job, err := m.Create("wd", src, []Target{{Type: "webdav", URL: server.URL + "/dav/backup", User: "u", Password: "p"}})
+	job, err := m.Create("wd", src, []Target{{Type: "webdav", URL: server.URL + "/dav/backup", User: "u", Password: "p"}}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,13 +122,40 @@ func TestWebDAVTarget(t *testing.T) {
 	}
 }
 
+func TestRunDue(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	os.MkdirAll(src, 0o755)
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("sched"), 0o644)
+	m, _ := New(t.TempDir())
+	job, err := m.Create("sched", src, []Target{{Type: "local", Path: filepath.Join(dir, "dst")}}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Только что созданное задание не должно запускаться сразу.
+	if reps := m.RunDue(context.Background(), time.Now()); len(reps) != 0 {
+		t.Fatalf("not due yet, got %d reports", len(reps))
+	}
+	// Искусственно «просрочиваем» интервал.
+	m.mu.Lock()
+	job.LastRun = time.Now().Add(-2 * time.Hour)
+	m.mu.Unlock()
+	reps := m.RunDue(context.Background(), time.Now())
+	if len(reps) != 1 || reps[0].Files != 1 {
+		t.Fatalf("due run reports=%v", reps)
+	}
+	// Сразу после запуска — снова не время.
+	if reps := m.RunDue(context.Background(), time.Now()); len(reps) != 0 {
+		t.Fatalf("ran twice, got %d", len(reps))
+	}
+}
 func TestBadTargetReportsError(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
 	os.MkdirAll(src, 0o755)
 	os.WriteFile(filepath.Join(src, "x.txt"), []byte("x"), 0o644)
 	m, _ := New(t.TempDir())
-	job, _ := m.Create("bad", src, []Target{{Type: "ftp", Path: "nope"}})
+	job, _ := m.Create("bad", src, []Target{{Type: "ftp", Path: "nope"}}, 0)
 	rep, err := m.Run(context.Background(), job.ID)
 	if err != nil {
 		t.Fatal(err)

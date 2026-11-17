@@ -32,12 +32,13 @@ type Target struct {
 
 // Job — задание бэкапа.
 type Job struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Source    string    `json:"source"`
-	Targets   []Target  `json:"targets"`
-	CreatedAt time.Time `json:"created_at"`
-	LastRun   time.Time `json:"last_run"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Source        string    `json:"source"`
+	Targets       []Target  `json:"targets"`
+	CreatedAt     time.Time `json:"created_at"`
+	IntervalHours int       `json:"interval_hours,omitempty"`
+	LastRun       time.Time `json:"last_run"`
 }
 
 // Report — результат запуска задания.
@@ -68,6 +69,7 @@ func New(dir string) (*Manager, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
+	m.Start(context.Background())
 	return m, nil
 }
 
@@ -91,7 +93,7 @@ func (m *Manager) Get(id string) *Job {
 	return nil
 }
 
-func (m *Manager) Create(name, source string, targets []Target) (*Job, error) {
+func (m *Manager) Create(name, source string, targets []Target, intervalHours int) (*Job, error) {
 	if name == "" || source == "" {
 		return nil, errors.New("name and source required")
 	}
@@ -102,7 +104,10 @@ func (m *Manager) Create(name, source string, targets []Target) (*Job, error) {
 	if _, err := rand.Read(raw); err != nil {
 		return nil, err
 	}
-	j := &Job{ID: hex.EncodeToString(raw), Name: name, Source: source, Targets: targets, CreatedAt: time.Now()}
+	j := &Job{ID: hex.EncodeToString(raw), Name: name, Source: source, Targets: targets, CreatedAt: time.Now(), IntervalHours: intervalHours}
+	if intervalHours > 0 {
+		j.LastRun = time.Now()
+	}
 	m.mu.Lock()
 	m.jobs = append(m.jobs, j)
 	err := m.saveLocked()
@@ -132,6 +137,47 @@ func (m *Manager) LastReport(id string) (Report, bool) {
 	defer m.mu.Unlock()
 	r, ok := m.last[id]
 	return r, ok
+}
+
+// RunDue запускает задания, у которых истёк интервал (для планировщика).
+func (m *Manager) RunDue(ctx context.Context, now time.Time) []Report {
+	var due []*Job
+	m.mu.Lock()
+	for _, j := range m.jobs {
+		if j.IntervalHours <= 0 {
+			continue
+		}
+		if j.LastRun.Add(time.Duration(j.IntervalHours) * time.Hour).After(now) {
+			continue
+		}
+		due = append(due, j)
+	}
+	m.mu.Unlock()
+	out := make([]Report, 0, len(due))
+	for _, j := range due {
+		rep, err := m.Run(ctx, j.ID)
+		if err != nil {
+			rep.Errors = append(rep.Errors, err.Error())
+		}
+		out = append(out, rep)
+	}
+	return out
+}
+
+// Start запускает фоновый планировщик (проверка раз в 30 секунд).
+func (m *Manager) Start(ctx context.Context) {
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-t.C:
+				m.RunDue(ctx, now)
+			}
+		}
+	}()
 }
 
 func (m *Manager) saveLocked() error {
