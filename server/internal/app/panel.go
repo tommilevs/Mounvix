@@ -13,18 +13,18 @@ func stringsRU() map[string]string {
 	return map[string]string{
 		"login": "Вход", "username": "Логин", "password": "Пароль", "signin": "Войти",
 		"nav_overview": "Обзор", "nav_folders": "Доступ к папкам", "nav_users": "Пользователи",
-		"nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
+		"nav_shares": "Шары", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
 		"overview": "Обзор", "version": "Версия", "uptime": "Аптайм", "roots": "Папки",
 		"users": "Пользователи", "sessions": "Сессии", "audit": "Аудит",
 		"folders": "Доступ к папкам", "name": "Имя", "path": "Путь", "readonly": "Только чтение",
-		"your_perm": "Ваши права",
+		"your_perm":   "Ваши права",
 		"create_user": "Создать пользователя", "new_password": "Новый пароль", "role": "Роль",
 		"apply": "Применить", "reset": "Сбросить пароль", "disable": "Отключить", "enable": "Включить",
 		"lang": "Язык", "save": "Сохранить", "logs": "Логи", "time": "Время", "action": "Действие",
 		"info": "Информация", "stats": "Статистика", "total_users": "Пользователей",
 		"total_roots": "Папок", "total_sessions": "Активных сессий", "audit_events": "Событий аудита",
 		"settings_note": "Корни задаются в config.json. Здесь можно сменить язык интерфейса.",
-		"no_access": "Нет доступа", "acl": "Доступ к папкам (чтение/запись)", "create": "Создать",
+		"no_access":     "Нет доступа", "acl": "Доступ к папкам (чтение/запись)", "create": "Создать",
 	}
 }
 
@@ -32,18 +32,18 @@ func stringsEN() map[string]string {
 	return map[string]string{
 		"login": "Login", "username": "Username", "password": "Password", "signin": "Sign in",
 		"nav_overview": "Overview", "nav_folders": "Folders access", "nav_users": "Users",
-		"nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
+		"nav_shares": "Shares", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
 		"overview": "Overview", "version": "Version", "uptime": "Uptime", "roots": "Folders",
 		"users": "Users", "sessions": "Sessions", "audit": "Audit",
 		"folders": "Folders access", "name": "Name", "path": "Path", "readonly": "Read-only",
-		"your_perm": "Your permission",
+		"your_perm":   "Your permission",
 		"create_user": "Create user", "new_password": "New password", "role": "Role",
 		"apply": "Apply", "reset": "Reset password", "disable": "Disable", "enable": "Enable",
 		"lang": "Language", "save": "Save", "logs": "Logs", "time": "Time", "action": "Action",
 		"info": "Info", "stats": "Stats", "total_users": "Users", "total_roots": "Folders",
 		"total_sessions": "Active sessions", "audit_events": "Audit events",
 		"settings_note": "Roots are set in config.json. Here you can change the interface language.",
-		"no_access": "No access", "acl": "Folder access (read/write)", "create": "Create",
+		"no_access":     "No access", "acl": "Folder access (read/write)", "create": "Create",
 	}
 }
 
@@ -253,7 +253,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <title>Mounvix — {{.Title}}</title><link rel="stylesheet" href="/style.css"></head><body>
 {{if .User}}<header><b>Mounvix</b><nav>
 <a href="/">{{T "nav_overview"}}</a><a href="/folders">{{T "nav_folders"}}</a><a href="/users">{{T "nav_users"}}</a>
-<a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
+<a href="/shares">{{T "nav_shares"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
 <form method="post" action="/logout"><button>{{T "logout"}}</button></form>
 </nav></header>{{end}}<main>
 {{end}}
@@ -339,6 +339,24 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <div class="card"><div class="muted">{{T "total_sessions"}}</div><div class="big">{{.Sessions}}</div></div>
 <div class="card"><div class="muted">{{T "audit_events"}}</div><div class="big">{{.AuditCount}}</div></div>
 </div>
+{{template "foot.html" .}}{{end}}
+
+{{define "shares.html"}}{{template "head.html" .}}
+<h1>Шары</h1>
+<form method="post" action="/shares" class="row">
+<input type="hidden" name="action" value="create">
+<select name="root">{{range .Roots}}<option value="{{.Name}}">{{.Name}} ({{.Path}})</option>{{end}}</select>
+<input name="path" placeholder="путь (например, Photos)" style="min-width:220px">
+<input name="hours" value="24" style="width:70px" title="часы">
+<input name="password" placeholder="пароль (не обяз.)" style="width:150px">
+<label><input type="checkbox" name="allow_upload"> загрузка</label>
+<button>Создать ссылку</button>
+</form>
+<table><tr><th>Ссылка</th><th>Путь</th><th>Истекает</th><th>Пароль</th><th></th></tr>
+{{range .Shares}}<tr><td><a href="/s/{{.Token}}" target="_blank">/s/{{.Token}}</a></td>
+<td>{{.Root}}/{{.Path}}</td><td>{{fmtTime .ExpiresAt}}</td><td>{{if .PasswordHash}}да{{else}}нет{{end}}</td>
+<td><form method="post" action="/shares"><input type="hidden" name="action" value="revoke"><input type="hidden" name="token" value="{{.Token}}"><button>Отозвать</button></form></td></tr>
+{{end}}</table>
 {{template "foot.html" .}}{{end}}
 `
 
