@@ -1,0 +1,58 @@
+#!/bin/sh
+# Mounvix server init script for Entware (Keenetic).
+# Place at /opt/etc/init.d/S99mounvix
+ENABLED=yes
+BIN=/opt/bin/mounvix-server
+NEW=/opt/bin/mounvix-server.new
+PREV=/opt/bin/mounvix-server.prev
+PID=/opt/var/run/mounvix.pid
+LOG=/opt/var/log/mounvix.log
+ADDR=${MOUNVIX_ADDR:-:48100}
+
+start() {
+    [ -x "$BIN" ] || { echo "$BIN not executable"; exit 1; }
+    echo "starting mounvix-server"
+    (
+        while :; do
+            "$BIN" -addr "$ADDR" >>"$LOG" 2>&1 &
+            echo $! > "$PID"
+            wait $!; rc=$?
+            rm -f "$PID"
+            if [ "$rc" -eq 75 ]; then
+                if [ -x "$NEW" ]; then
+                    cp -f "$BIN" "$PREV" 2>/dev/null || true
+                    chmod +x "$NEW" && mv -f "$NEW" "$BIN"
+                    echo "mounvix: updated binary, restarting"
+                else
+                    echo "mounvix: update requested without $NEW; restarting current"
+                fi
+                continue
+            fi
+            if [ "$rc" -ne 0 ] && [ -x "$PREV" ]; then
+                echo "mounvix: rc=$rc, restoring $PREV"
+                cp -f "$PREV" "$BIN"
+                rm -f "$PREV"
+                continue
+            fi
+            echo "mounvix: exited rc=$rc"
+            break
+        done
+    ) &
+    echo "started (pid $!)"
+}
+
+stop() {
+    [ -f "$PID" ] && kill "$(cat "$PID")" 2>/dev/null
+    pkill -f mounvix-server 2>/dev/null
+    rm -f "$PID"
+    echo "stopped"
+}
+
+case "$1" in
+    start) [ "$ENABLED" = yes ] && start ;;
+    stop) stop ;;
+    restart) stop; sleep 1; start ;;
+    status) pgrep -f mounvix-server >/dev/null && echo alive || echo dead ;;
+    *) echo "usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac
+exit 0

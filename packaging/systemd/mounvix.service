@@ -1,0 +1,14 @@
+[Unit]
+Description=Mounvix NAS server (lightweight NAS web UI + WebDAV)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/mounvix-server -addr 0.0.0.0:48100
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

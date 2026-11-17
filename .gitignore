@@ -1,0 +1,12 @@
+# build artifacts
+dist/
+build/
+.gradle/
+local.properties
+
+# scratch
+.superpowers/
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
