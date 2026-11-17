@@ -8,13 +8,14 @@ PREV=/opt/bin/mounvix-server.prev
 PID=/opt/var/run/mounvix.pid
 LOG=/opt/var/log/mounvix.log
 ADDR=${MOUNVIX_ADDR:-:48100}
+CONFIG=${MOUNVIX_CONFIG:-/opt/etc/mounvix/config.json}
 
 start() {
     [ -x "$BIN" ] || { echo "$BIN not executable"; exit 1; }
     echo "starting mounvix-server"
     (
         while :; do
-            "$BIN" -addr "$ADDR" >>"$LOG" 2>&1 &
+            "$BIN" -addr "$ADDR" -config "$CONFIG" >>"$LOG" 2>&1 &
             echo $! > "$PID"
             wait $!; rc=$?
             rm -f "$PID"
@@ -37,7 +38,7 @@ start() {
             echo "mounvix: exited rc=$rc"
             break
         done
-    ) &
+    ) >>"$LOG" 2>&1 &
     echo "started (pid $!)"
 }
 

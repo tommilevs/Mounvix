@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/mounvix-server -addr 0.0.0.0:48100
+ExecStart=/usr/bin/mounvix-server -addr 0.0.0.0:48100 -config /etc/mounvix/config.json
 Restart=always
 RestartSec=3
 User=root
