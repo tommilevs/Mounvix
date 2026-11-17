@@ -52,6 +52,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
@@ -59,6 +60,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.mockito:mockito-core:5.14.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
 }

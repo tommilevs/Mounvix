@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,6 +52,12 @@ fun MounvixRoot() {
                     icon = { Icon(Icons.Filled.History, contentDescription = null) },
                     label = { Text("Недавние") }
                 )
+                NavigationBarItem(
+                    selected = tab == "servers",
+                    onClick = { tab = "servers" },
+                    icon = { Icon(Icons.Filled.Cloud, contentDescription = null) },
+                    label = { Text("Серверы") }
+                )
             }
         }
     ) { padding ->
@@ -61,7 +68,8 @@ fun MounvixRoot() {
                     viewModel = viewModel,
                     onGoToFiles = { tab = "files" }
                 )
-                else -> RecentsScreen(viewModel)
+                "recents" -> RecentsScreen(viewModel)
+                else -> WebDavScreen(viewModel, onConnected = { tab = "files" })
             }
         }
     }

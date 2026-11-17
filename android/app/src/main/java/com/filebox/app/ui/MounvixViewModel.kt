@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
+import androidx.core.content.FileProvider
 import com.mounvix.app.data.db.AppDatabase
 import com.mounvix.app.data.db.Favorite
 import com.mounvix.app.data.db.Recent
@@ -15,6 +16,8 @@ import com.mounvix.app.data.repository.FavoriteRepository
 import com.mounvix.app.data.repository.RecentRepository
 import com.mounvix.app.data.source.SafStorageSource
 import com.mounvix.app.data.source.StorageSource
+import com.mounvix.app.data.source.WebDavServer
+import com.mounvix.app.data.source.WebDavStorageSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +28,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 class MounvixViewModel(private val appContext: Context) : ViewModel() {
@@ -72,6 +77,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
     // Инициализация ПОСЛЕ всех полей-состояний: Kotlin инициализирует поля в порядке объявления.
     init {
         restoreLastTree()
+        restoreLastWebDav()
     }
 
     // ---------- Вкладка «Файлы» ----------
@@ -104,6 +110,34 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         }
         refresh()
         return true
+    }
+
+    /** Подключение к WebDAV (блокирующее; вызывать из IO). */
+    fun connectWebDav(url: String, user: String, password: String, trustAll: Boolean): Boolean {
+        if (url.isBlank()) return false
+        return try {
+            val src = WebDavStorageSource(WebDavServer(baseUrl = url, user = user, password = password, trustAll = trustAll))
+            src.listDir("")
+            source = src
+            _state.update { it.copy(treeUri = null, pathStack = emptyList(), selection = emptySet(), search = "", error = null) }
+            prefs.edit()
+                .putString("webdav_url", url).putString("webdav_user", user)
+                .putString("webdav_pass", password).putBoolean("webdav_trust", trustAll).apply()
+            refresh()
+            true
+        } catch (e: Exception) {
+            Log.w("MounvixWebDav", "connect failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun restoreLastWebDav() {
+        val url = prefs.getString("webdav_url", null) ?: return
+        if (prefs.getString("last_tree_uri", null) != null) return
+        val user = prefs.getString("webdav_user", "") ?: ""
+        val pass = prefs.getString("webdav_pass", "") ?: ""
+        val trust = prefs.getBoolean("webdav_trust", true)
+        scope.launch { connectWebDav(url, user, pass, trust) }
     }
 
     fun refresh() {
@@ -289,7 +323,11 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
             return true
         }
         val uri = src.uriOf(entry.path)
-            ?: run { showToast("Не удалось получить доступ к «${entry.name}»"); return false }
+        if (uri == null) {
+            if (src is WebDavStorageSource) return openRemoteFile(entry, src)
+            showToast("Не удалось получить доступ к «${entry.name}»")
+            return false
+        }
         val mime = src.mimeTypeOf(entry.path) ?: "application/octet-stream"
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mime)
@@ -318,6 +356,32 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         }
         if (launched) recordRecent(entry, src)
         return launched
+    }
+
+    /** Скачать WebDAV-файл в кэш и открыть через FileProvider. */
+    private fun openRemoteFile(entry: FileEntry, src: WebDavStorageSource): Boolean {
+        scope.launch {
+            try {
+                val dir = File(appContext.cacheDir, "webdav").apply { mkdirs() }
+                val out = File(dir, entry.name)
+                src.download(entry.path, out)
+                val mime = src.mimeTypeOf(entry.path) ?: "application/octet-stream"
+                withContext(Dispatchers.Main) {
+                    val uri = FileProvider.getUriForFile(appContext, appContext.packageName + ".fileprovider", out)
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, mime)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    val matches = appContext.packageManager.queryIntentActivities(intent, 0)
+                    if (matches.isEmpty()) { showToast("Нет приложения для открытия «${entry.name}»"); return@withContext }
+                    appContext.startActivity(Intent.createChooser(intent, "Открыть: ${entry.name}").apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+                    recordRecent(entry, src)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { showToast("Не удалось скачать «${entry.name}»: ${e.message}") }
+            }
+        }
+        return true
     }
 
     private fun recordRecent(entry: FileEntry, src: StorageSource) {
