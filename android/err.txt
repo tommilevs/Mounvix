@@ -1,0 +1,22 @@
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/ExplorerScreen.kt:306:29 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/ExplorerScreen.kt:351:29 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/ExplorerScreen.kt:363:21 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:35:15 Type 'State<Favorites
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:51:61 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:53:44 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:55:32 Type mismatch: inferr
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:57:63 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:57:80 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:58:44 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:60:68 Type mismatch: inferr
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:74:38 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:74:55 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FavoritesScreen.kt:85:44 Unresolved reference:
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FileBoxRoot.kt:19:33 Unresolved reference: rem
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FileBoxRoot.kt:31:16 Unresolved reference: rem
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FileBoxRoot.kt:62:21 Cannot find a parameter w
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/FileBoxViewModel.kt:388:77 Unresolved referenc
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/RecentsScreen.kt:69:61 Unresolved reference: d
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/RecentsScreen.kt:76:54 Unresolved reference: d
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/RecentsScreen.kt:76:71 Unresolved reference: d
+e: file:///C:/workspace/dsh/FileBox/app/src/main/java/com/filebox/app/ui/RecentsScreen.kt:84:60 Unresolved reference: d

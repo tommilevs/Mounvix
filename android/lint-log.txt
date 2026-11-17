@@ -1,0 +1,85 @@
+﻿To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.5/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+gradle.bat : Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of ver
+sion 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were rele
+ased at different times.
+строка:4 знак:1
++ & 'C:\android-dev\gradle-8.5\bin\gradle.bat' -p 'C:\workspace\dsh\Fil ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Warning: SDK pr...ifferent times.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:compileDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:bundleDebugClassesToCompileJar UP-TO-DATE
+> Task :app:extractProguardFiles
+> Task :app:preDebugAndroidTestBuild SKIPPED
+> Task :app:generateDebugAndroidTestResValues
+> Task :app:generateDebugLintReportModel
+> Task :app:lintAnalyzeDebug
+
+> Task :app:lintReportDebug
+Wrote HTML report to file:///C:/workspace/dsh/FileBox/app/build/reports/lint-results-debug.html
+
+> Task :app:lintDebug FAILED
+Lint found 2 errors, 8 warnings. First failure:
+
+C:\workspace\dsh\FileBox\app\src\main\java\com\filebox\app\ui\theme\Theme.kt:49: Error: Call requires API level 31 (current min is 29): dynamicDarkColorScheme [NewApi]
+        dynamicColor && darkTheme -> dynamicDarkColorScheme(LocalContext.current)
+                                     ~~~~~~~~~~~~~~~~~~~~~~
+
+The full lint text report is located at:
+  C:\workspace\dsh\FileBox\app\build\intermediates\lint_intermediate_text_report\debug\lint-results-debug.txt
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:lintDebug'.
+> Lint found errors in the project; aborting build.
+  
+  Fix the issues identified by lint, or create a baseline to see only new errors.
+  To create a baseline, run `gradlew updateLintBaseline` after adding the following to the module's build.gradle file:
+  ```
+  android {
+      lint {
+          baseline = file("lint-baseline.xml")
+      }
+  }
+  ```
+  For more details, see https://developer.android.com/studio/write/lint#snapshot
+  
+  Lint found 2 errors, 8 warnings. First failure:
+  
+  C:\workspace\dsh\FileBox\app\src\main\java\com\filebox\app\ui\theme\Theme.kt:49: Error: Call requires API level 31 (c
+urrent min is 29): dynamicDarkColorScheme [NewApi]
+          dynamicColor && darkTheme -> dynamicDarkColorScheme(LocalContext.current)
+                                       ~~~~~~~~~~~~~~~~~~~~~~
+  
+  The full lint text report is located at:
+    C:\workspace\dsh\FileBox\app\build\intermediates\lint_intermediate_text_report\debug\lint-results-debug.txt
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1m 57s
+22 actionable tasks: 7 executed, 15 up-to-date
