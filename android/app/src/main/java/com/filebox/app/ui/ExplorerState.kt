@@ -47,3 +47,11 @@ data class RecentsUi(
     val error: String? = null,
     val items: List<RecentItem> = emptyList()
 )
+data class GalleryItem(val entry: FileEntry, val file: java.io.File?, val video: Boolean)
+
+data class GalleryUi(
+    val loaded: Boolean = false,
+    val loading: Boolean = false,
+    val error: String? = null,
+    val items: List<GalleryItem> = emptyList()
+)

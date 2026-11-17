@@ -78,6 +78,8 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
     val favoritesUi: StateFlow<FavoritesUi> = _favoritesUi.asStateFlow()
 
     private val _recentsUi = MutableStateFlow(RecentsUi())
+    private val _galleryUi = MutableStateFlow(GalleryUi())
+    val galleryUi: StateFlow<GalleryUi> = _galleryUi.asStateFlow()
     val recentsUi: StateFlow<RecentsUi> = _recentsUi.asStateFlow()
 
     // Инициализация ПОСЛЕ всех полей-состояний: Kotlin инициализирует поля в порядке объявления.
@@ -817,6 +819,95 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         }
     }
 
+    // ---------- Галерея ----------
+
+    private fun isVideoPath(path: String): Boolean = when (path.substringAfterLast('.', "").lowercase(Locale.US)) {
+        "mp4", "mkv", "webm", "mov", "m4v" -> true
+        else -> false
+    }
+
+    private fun isImagePath(path: String): Boolean = when (path.substringAfterLast('.', "").lowercase(Locale.US)) {
+        "jpg", "jpeg", "png", "gif", "webp", "bmp" -> true
+        else -> false
+    }
+
+    fun loadGallery(force: Boolean = false) {
+        if (_galleryUi.value.loading) return
+        val src = source ?: run {
+            _galleryUi.update { it.copy(loaded = true, loading = false, items = emptyList()) }
+            return
+        }
+        scope.launch {
+            _galleryUi.update { it.copy(loading = true, error = null) }
+            val items = ArrayList<GalleryItem>()
+            try {
+                for (e in _state.value.entries) {
+                    if (e.type != FileType.FILE) continue
+                    val video = isVideoPath(e.path)
+                    if (!video && !isImagePath(e.path)) continue
+                    val f = cacheMediaFile(e.path, src)
+                    items.add(GalleryItem(e, f, video))
+                    _galleryUi.update { it.copy(loading = false, loaded = true, items = items.toList()) }
+                }
+                _galleryUi.update { it.copy(loading = false, loaded = true, items = items) }
+            } catch (e: Exception) {
+                _galleryUi.update { it.copy(loading = false, loaded = true, error = e.message ?: "Ошибка галереи") }
+            }
+        }
+    }
+
+    private fun cacheMediaFile(path: String, src: StorageSource): File? {
+        val dir = File(appContext.cacheDir, "media").apply { mkdirs() }
+        val out = File(dir, path.replace('/', '_'))
+        if (out.exists() && out.length() > 0) return out
+        return try {
+            if (src.downloadTo(path, out)) {
+                out
+            } else {
+                val u = src.uriOf(path) ?: return null
+                appContext.contentResolver.openInputStream(u)?.use { input ->
+                    out.outputStream().use { o -> input.copyTo(o) }
+                }
+                if (out.length() > 0) out else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun openGalleryItem(item: GalleryItem): Boolean {
+        val f = item.file ?: run { showToast("Файл ещё не загружен"); return false }
+        val mime = when (item.entry.path.substringAfterLast('.', "").lowercase(Locale.US)) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "mp4" -> "video/mp4"
+            "webm" -> "video/webm"
+            "mkv" -> "video/x-matroska"
+            else -> "application/octet-stream"
+        }
+        return try {
+            val uri = FileProvider.getUriForFile(appContext, appContext.packageName + ".fileprovider", f)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val matches = appContext.packageManager.queryIntentActivities(intent, 0)
+            if (matches.isEmpty()) {
+                showToast("Нет приложения для просмотра")
+                false
+            } else {
+                appContext.startActivity(Intent.createChooser(intent, "Открыть: " + item.entry.name).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+                true
+            }
+        } catch (e: Exception) {
+            showToast(e.message ?: "Не удалось открыть")
+            false
+        }
+    }
     override fun onCleared() {
         scope.cancel()
         super.onCleared()

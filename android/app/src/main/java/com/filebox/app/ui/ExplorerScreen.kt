@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
@@ -82,7 +83,7 @@ private sealed class ExplorerDialog {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExplorerScreen(viewModel: MounvixViewModel) {
+fun ExplorerScreen(viewModel: MounvixViewModel, onOpenGallery: () -> Unit = {}) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsState()
     var dialog by remember { mutableStateOf<ExplorerDialog?>(null) }
@@ -149,6 +150,9 @@ fun ExplorerScreen(viewModel: MounvixViewModel) {
                         IconButton(onClick = { showSearch = true; searchField = "" }) {
                             Icon(Icons.Filled.Search, contentDescription = "Поиск")
                         }
+                    }
+                    IconButton(onClick = onOpenGallery) {
+                        Icon(Icons.Filled.PhotoLibrary, contentDescription = "Галерея")
                     }
                     Box {
                         IconButton(onClick = { sortMenu = true }) {

@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -58,17 +59,19 @@ fun MounvixRoot() {
                     icon = { Icon(Icons.Filled.Cloud, contentDescription = null) },
                     label = { Text("Серверы") }
                 )
+
             }
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
-                "files" -> ExplorerScreen(viewModel)
+                "files" -> ExplorerScreen(viewModel, onOpenGallery = { tab = "gallery"; viewModel.loadGallery() })
                 "favorites" -> FavoritesScreen(
                     viewModel = viewModel,
                     onGoToFiles = { tab = "files" }
                 )
                 "recents" -> RecentsScreen(viewModel)
+                "gallery" -> GalleryScreen(viewModel, onBack = { tab = "files" })
                 else -> WebDavScreen(viewModel, onConnected = { tab = "files" })
             }
         }
