@@ -18,6 +18,8 @@ interface StorageSource {
     fun stat(path: String): FileEntry?
     fun copy(src: String, dst: String): Boolean
     fun move(src: String, dst: String): Boolean
+    /** Скачать файл в target (для удалённых источников); false — не поддержано. */
+    fun downloadTo(path: String, target: java.io.File): Boolean = false
     fun uriOf(path: String): Uri? = null
     fun mimeTypeOf(path: String): String? = null
 

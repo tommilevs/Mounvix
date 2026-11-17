@@ -135,6 +135,12 @@ class WebDavStorageSource(private val server: WebDavServer) : StorageSource {
         mapOf("Destination" to buildUrl(dst, false).toString(), "Overwrite" to "F"),
     ) in 200..299
 
+    override fun downloadTo(path: String, target: java.io.File): Boolean = try {
+        download(path, target); true
+    } catch (e: Exception) {
+        false
+    }
+
     /** Скачать файл в target (для «открыть» через FileProvider). */
     fun download(path: String, target: File): File {
         target.parentFile?.mkdirs()

@@ -47,6 +47,13 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
     var trust by rememberSaveable { mutableStateOf(prefs.getBoolean("webdav_trust", true)) }
     var err by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var smbHost by rememberSaveable { mutableStateOf(prefs.getString("smb_host", "192.168.160.2") ?: "") }
+    var smbShare by rememberSaveable { mutableStateOf(prefs.getString("smb_share", "all") ?: "") }
+    var smbDomain by rememberSaveable { mutableStateOf(prefs.getString("smb_domain", "") ?: "") }
+    var smbUser by rememberSaveable { mutableStateOf(prefs.getString("smb_user", "admin") ?: "") }
+    var smbPass by rememberSaveable { mutableStateOf(prefs.getString("smb_pass", "") ?: "") }
+    var errSmb by remember { mutableStateOf<String?>(null) }
+    var busySmb by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Scaffold(topBar = { TopAppBar(title = { Text("Серверы") }) }) { padding ->
@@ -108,6 +115,39 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text(if (busy) "Подключение…" else "Подключиться") }
+            Text("Подключение к SMB", style = MaterialTheme.typography.headlineSmall)
+            OutlinedTextField(value = smbHost, onValueChange = { smbHost = it }, label = { Text("SMB хост") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = smbShare, onValueChange = { smbShare = it }, label = { Text("SMB шара") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = smbDomain, onValueChange = { smbDomain = it }, label = { Text("Домен (пусто = WORKGROUP)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = smbUser, onValueChange = { smbUser = it }, label = { Text("Логин") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = smbPass, onValueChange = { smbPass = it }, label = { Text("Пароль") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+            errSmb?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Button(
+                enabled = !busySmb,
+                onClick = {
+                    busySmb = true
+                    errSmb = null
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) {
+                            viewModel.connectSmb(smbHost.trim(), smbShare.trim(), smbDomain.trim(), smbUser.trim(), smbPass)
+                        }
+                        busySmb = false
+                        if (ok) {
+                            prefs.edit()
+                                .putString("smb_host", smbHost.trim())
+                                .putString("smb_share", smbShare.trim())
+                                .putString("smb_domain", smbDomain.trim())
+                                .putString("smb_user", smbUser.trim())
+                                .putString("smb_pass", smbPass)
+                                .apply()
+                            onConnected()
+                        } else {
+                            errSmb = "Не удалось подключиться к SMB"
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (busySmb) "Подключение…" else "Подключиться к SMB") }
             Text(
                 "Для своего сервера: http://IP:48100/dav/<корень>/; " +
                     "Keenetic native WebDAV обычно …/webdav/. Простой режим не требует установленного Mounvix.",

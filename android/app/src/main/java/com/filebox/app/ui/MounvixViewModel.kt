@@ -15,6 +15,8 @@ import com.mounvix.app.data.model.FileType
 import com.mounvix.app.data.repository.FavoriteRepository
 import com.mounvix.app.data.repository.RecentRepository
 import com.mounvix.app.data.source.SafStorageSource
+import com.mounvix.app.data.source.SmbServer
+import com.mounvix.app.data.source.SmbStorageSource
 import com.mounvix.app.data.source.StorageSource
 import com.mounvix.app.data.source.WebDavServer
 import com.mounvix.app.data.source.WebDavStorageSource
@@ -78,6 +80,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
     init {
         restoreLastTree()
         restoreLastWebDav()
+        restoreLastSmb()
     }
 
     // ---------- Вкладка «Файлы» ----------
@@ -139,6 +142,47 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         val pass = prefs.getString("webdav_pass", "") ?: ""
         val trust = prefs.getBoolean("webdav_trust", true)
         scope.launch { connectWebDav(url, user, pass, trust) }
+    }
+
+    /** Подключение к SMB (блокирующее; из IO). */
+    fun connectSmb(host: String, share: String, domain: String, user: String, password: String): Boolean {
+        if (host.isBlank() || share.isBlank()) return false
+        return try {
+            val src = SmbStorageSource(SmbServer(host = host, share = share, domain = domain, user = user, password = password))
+            src.listDir("")
+            source = src
+            _state.update { it.copy(treeUri = null, remoteMode = true, pathStack = emptyList(), selection = emptySet(), search = "", error = null) }
+            prefs.edit()
+                .putString("smb_host", host).putString("smb_share", share).putString("smb_domain", domain)
+                .putString("smb_user", user).putString("smb_pass", password).apply()
+            refresh()
+            true
+        } catch (e: Exception) {
+            Log.w("MounvixSmb", "connect failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun restoreLastSmb() {
+        val host = prefs.getString("smb_host", null) ?: return
+        if (prefs.getString("last_tree_uri", null) != null) return
+        if (prefs.getString("webdav_url", null) != null) return
+        val share = prefs.getString("smb_share", "") ?: ""
+        val domain = prefs.getString("smb_domain", "") ?: ""
+        val user = prefs.getString("smb_user", "") ?: ""
+        val pass = prefs.getString("smb_pass", "") ?: ""
+        scope.launch { connectSmb(host, share, domain, user, pass) }
+    }
+
+    private fun smbSourceFor(treeId: String): SmbStorageSource? {
+        val host = prefs.getString("smb_host", null) ?: return null
+        val share = prefs.getString("smb_share", null) ?: return null
+        val expected = "smb://$host/$share"
+        if (treeId.trimEnd('/') != expected.trimEnd('/')) return null
+        val user = prefs.getString("smb_user", "") ?: ""
+        val pass = prefs.getString("smb_pass", "") ?: ""
+        val domain = prefs.getString("smb_domain", "") ?: ""
+        return SmbStorageSource(SmbServer(host = host, share = share, domain = domain, user = user, password = pass))
     }
 
     fun refresh() {
@@ -326,7 +370,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         }
         val uri = src.uriOf(entry.path)
         if (uri == null) {
-            if (src is WebDavStorageSource) return openRemoteFile(entry, src)
+            if (src is WebDavStorageSource || src is SmbStorageSource) return openRemoteFile(entry, src)
             showToast("Не удалось получить доступ к «${entry.name}»")
             return false
         }
@@ -361,12 +405,12 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
     }
 
     /** Скачать WebDAV-файл в кэш и открыть через FileProvider. */
-    private fun openRemoteFile(entry: FileEntry, src: WebDavStorageSource): Boolean {
+    private fun openRemoteFile(entry: FileEntry, src: StorageSource): Boolean {
         scope.launch {
             try {
                 val dir = File(appContext.cacheDir, "webdav").apply { mkdirs() }
                 val out = File(dir, entry.name)
-                src.download(entry.path, out)
+                if (!src.downloadTo(entry.path, out)) throw IllegalStateException("download failed")
                 val mime = src.mimeTypeOf(entry.path) ?: "application/octet-stream"
                 withContext(Dispatchers.Main) {
                     val uri = FileProvider.getUriForFile(appContext, appContext.packageName + ".fileprovider", out)
@@ -380,6 +424,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
                     recordRecent(entry, src)
                 }
             } catch (e: Exception) {
+                Log.w("MounvixOpen", "remote open failed ${entry.name}: ${e.message}", e)
                 withContext(Dispatchers.Main) { showToast("Не удалось скачать «${entry.name}»: ${e.message}") }
             }
         }
@@ -445,6 +490,14 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
 
     private fun isSavedAvailable(treeId: String, relPath: String, wantFolder: Boolean, cache: HashMap<String, StorageSource>): Boolean {
         webDavSourceFor(treeId)?.let { remote ->
+            return try {
+                val st = remote.stat(relPath) ?: return false
+                if (wantFolder) st.type == FileType.FOLDER else st.type == FileType.FILE
+            } catch (e: Exception) {
+                false
+            }
+        }
+        smbSourceFor(treeId)?.let { remote ->
             return try {
                 val st = remote.stat(relPath) ?: return false
                 if (wantFolder) st.type == FileType.FOLDER else st.type == FileType.FILE
@@ -560,6 +613,27 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
                 return true
             }
             return openRemoteFile(st, remote)
+        }
+        val smb = smbSourceFor(treeId)
+        if (smb != null) {
+            val st = try { smb.stat(relPath) } catch (e: Exception) { null }
+                ?: run { showToast("Объект недоступен"); return false }
+            if (st.type == FileType.FOLDER) {
+                source = smb
+                _state.update { s ->
+                    s.copy(
+                        treeUri = null,
+                        remoteMode = true,
+                        pathStack = relPath.split("/").filter { it.isNotBlank() },
+                        selection = emptySet(),
+                        search = "",
+                        error = null
+                    )
+                }
+                refresh()
+                return true
+            }
+            return openRemoteFile(st, smb)
         }
         val uri = try { Uri.parse(treeId) } catch (e: Exception) { return false }
         val src = SafStorageSource(appContext, uri)
