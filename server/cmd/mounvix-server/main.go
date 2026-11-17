@@ -1,35 +1,41 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
-	"time"
+	"path/filepath"
 
+	"github.com/tommilevs/Mounvix/server/internal/app"
 	"github.com/tommilevs/Mounvix/server/internal/version"
 )
 
-var started = time.Now()
-
-func newMux() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":       true,
-			"version":  version.Version,
-			"uptime_s": int(time.Since(started).Seconds()),
-		})
-	})
-	return mux
-}
-
 func main() {
-	addr := flag.String("addr", ":48100", "listen address")
+	configPath := flag.String("config", "", "path to config.json (default <data>/config.json)")
+	dataDir := flag.String("data", "", "data dir override")
+	addr := flag.String("addr", "", "listen address (default :<config.port>)")
 	flag.Parse()
-	log.Printf("mounvix-server %s listening on %s", version.Version, *addr)
-	if err := http.ListenAndServe(*addr, newMux()); err != nil {
+
+	cfg, cfgPath, err := app.LoadConfig(*configPath)
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+	if *dataDir != "" {
+		cfg.DataDir = *dataDir
+		if *configPath == "" {
+			cfgPath = filepath.Join(cfg.DataDir, "config.json")
+		}
+	}
+	a, err := app.New(cfg, cfgPath)
+	if err != nil {
+		log.Fatalf("app: %v", err)
+	}
+	if *addr == "" {
+		*addr = fmt.Sprintf(":%d", cfg.Port)
+	}
+	log.Printf("mounvix-server %s on %s (data=%s)", version.Version, *addr, cfg.DataDir)
+	if err := http.ListenAndServe(*addr, a); err != nil {
 		log.Fatal(err)
 	}
 }
