@@ -2,6 +2,7 @@
 package plugins
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Plugin — запись реестра плагинов.
@@ -131,6 +133,25 @@ func (r *Registry) saveLocked() error {
 		return err
 	}
 	return os.Rename(tmp, p)
+}
+
+// RcloneSync выполняет rclone sync src → dst (без shell, аргументы отдельно). Только для админа.
+func (r *Registry) RcloneSync(ctx context.Context, src, dst string) (string, error) {
+	if src == "" || dst == "" {
+		return "", errors.New("src and dst required")
+	}
+	if strings.HasPrefix(src, "-") || strings.HasPrefix(dst, "-") {
+		return "", errors.New("path must not start with '-'")
+	}
+	path, err := exec.LookPath("rclone")
+	if err != nil {
+		return "", errors.New("rclone not installed")
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, path, "sync", src, dst, "--stats", "0")
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 // RcloneStatus — версия и список удалённых хранилищ rclone.

@@ -449,6 +449,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 {{if .Rclone.Installed}}
 <p>Версия: {{.Rclone.Version}}</p>
 <p>Хранилища: {{range .Rclone.Remotes}}{{.}} {{else}}нет{{end}}</p>
+<form method="post" action="/plugins" class="row"><input type="hidden" name="action" value="rclone_sync"><input name="src" placeholder="источник (local или remote:путь)" style="min-width:220px"><input name="dst" placeholder="назначение" style="min-width:220px"><button>rclone sync</button></form>
 {{else}}
 <p class="muted">rclone не установлен. Установите: <code>opkg install rclone</code> (Entware) или <code>apt install rclone</code>.</p>
 {{end}}
