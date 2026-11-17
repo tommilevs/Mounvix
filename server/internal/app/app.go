@@ -22,6 +22,7 @@ type App struct {
 	locks   webdav.LockSystem
 	shares  *share.Manager
 	backups *backup.Manager
+	regs    *RegStore
 	started time.Time
 }
 
@@ -38,7 +39,11 @@ func New(cfg Config, cfgPath string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, started: time.Now(), locks: webdav.NewMemLS()}
+	rg, err := NewRegStore(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, regs: rg, started: time.Now(), locks: webdav.NewMemLS()}
 	a.tmpl = mustTemplates(a)
 	a.mux = http.NewServeMux()
 	a.routes()
@@ -51,6 +56,8 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/health", a.handleHealth)
 	a.mux.HandleFunc("/style.css", a.handleStyle)
 	a.mux.HandleFunc("/login", a.handleLogin)
+	a.mux.HandleFunc("/register", a.handleRegister)
+	a.mux.HandleFunc("/registrations", a.handleRegistrations)
 	a.mux.HandleFunc("/logout", a.handleLogout)
 	a.mux.HandleFunc("/", a.requireAuth(a.handleDashboard))
 	a.mux.HandleFunc("/folders", a.requireAuth(a.handleFolders))

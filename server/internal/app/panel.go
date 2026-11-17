@@ -13,7 +13,7 @@ func stringsRU() map[string]string {
 	return map[string]string{
 		"login": "Вход", "username": "Логин", "password": "Пароль", "signin": "Войти",
 		"nav_overview": "Обзор", "nav_folders": "Доступ к папкам", "nav_users": "Пользователи",
-		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
+		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_regs": "Заявки", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
 		"overview": "Обзор", "version": "Версия", "uptime": "Аптайм", "roots": "Папки",
 		"users": "Пользователи", "sessions": "Сессии", "audit": "Аудит",
 		"folders": "Доступ к папкам", "name": "Имя", "path": "Путь", "readonly": "Только чтение",
@@ -32,7 +32,7 @@ func stringsEN() map[string]string {
 	return map[string]string{
 		"login": "Login", "username": "Username", "password": "Password", "signin": "Sign in",
 		"nav_overview": "Overview", "nav_folders": "Folders access", "nav_users": "Users",
-		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
+		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_regs": "Requests", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
 		"overview": "Overview", "version": "Version", "uptime": "Uptime", "roots": "Folders",
 		"users": "Users", "sessions": "Sessions", "audit": "Audit",
 		"folders": "Folders access", "name": "Name", "path": "Path", "readonly": "Read-only",
@@ -260,7 +260,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <title>Mounvix — {{.Title}}</title><link rel="stylesheet" href="/style.css"></head><body>
 {{if .User}}<header><b>Mounvix</b><nav>
 <a href="/">{{T "nav_overview"}}</a><a href="/folders">{{T "nav_folders"}}</a><a href="/users">{{T "nav_users"}}</a>
-<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/backup">{{T "nav_backup"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
+<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/backup">{{T "nav_backup"}}</a><a href="/registrations">{{T "nav_regs"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
 <form method="post" action="/logout"><button>{{T "logout"}}</button></form>
 </nav></header>{{end}}<main>
 {{end}}
@@ -412,6 +412,30 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="restore"><input type="hidden" name="id" value="{{.ID}}"><input name="dest" placeholder="куда восстановить" style="width:150px"><button>Восстановить</button></form>
 </td></tr>{{end}}</table>
 {{template "foot.html" .}}{{end}}
+
+{{define "register.html"}}{{template "head.html" .}}
+<h1>Регистрация</h1>
+{{if .Msg}}<p>{{.Msg}}</p>{{end}}
+{{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+<form method="post" action="/register">
+<label>Логин<br><input name="username" required minlength="3" maxlength="32"></label><br>
+<label>Пароль (минимум 8 символов)<br><input type="password" name="password" required minlength="8"></label><br>
+<button>Отправить заявку</button>
+</form>
+<p class="muted">После подтверждения администратором вы сможете войти.</p>
+{{template "foot.html" .}}{{end}}
+
+{{define "registrations.html"}}{{template "head.html" .}}
+<h1>Заявки на регистрацию</h1>
+{{if .Msg}}<p>{{.Msg}}</p>{{end}}
+{{if .Pending}}
+<table><tr><th>Логин</th><th>Создана</th><th></th></tr>
+{{range .Pending}}<tr><td>{{.Name}}</td><td>{{fmtTime .CreatedAt}}</td><td>
+<form method="post" action="/registrations" style="display:inline"><input type="hidden" name="action" value="approve"><input type="hidden" name="id" value="{{.ID}}"><button>Принять</button></form>
+<form method="post" action="/registrations" style="display:inline"><input type="hidden" name="action" value="reject"><input type="hidden" name="id" value="{{.ID}}"><button>Отклонить</button></form>
+</td></tr>{{end}}</table>
+{{else}}<p class="muted">Заявок нет.</p>{{end}}
+{{template "foot.html" .}}{{end}}
 `
 
 const loginHTML = `{{define "login.html"}}<!doctype html>
@@ -420,6 +444,7 @@ const loginHTML = `{{define "login.html"}}<!doctype html>
 <body class="login"><div class="card">
 <h1>Mounvix</h1>
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+<p><a href="/register">Регистрация</a></p>
 <form method="post" action="/login">
 <label>{{T "username"}}<br><input name="username" autofocus required></label><br>
 <label>{{T "password"}}<br><input type="password" name="password" required></label><br>

@@ -187,6 +187,25 @@ func (s *Store) SetACL(name string, acl map[string]string) {
 	}
 }
 
+// AddUserHash добавляет пользователя с уже готовым bcrypt-хешем (из заявки).
+func (s *Store) AddUserHash(name, hash, role string) error {
+	if name == "" || hash == "" {
+		return errors.New("bad name or hash")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range s.users {
+		if u.Name == name {
+			return errors.New("user exists")
+		}
+	}
+	if role != "admin" {
+		role = "user"
+	}
+	s.users = append(s.users, &User{Name: name, PassHash: hash, Role: role, ACL: map[string]string{}})
+	return s.saveLocked()
+}
+
 func (s *Store) CreateSession(name string) string {
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
