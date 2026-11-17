@@ -58,7 +58,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         if (!hasPerm) return
         try {
             source = SafStorageSource(appContext, uri)
-            _state.update { it.copy(treeUri = uri, pathStack = emptyList()) }
+            _state.update { it.copy(treeUri = uri, remoteMode = false, pathStack = emptyList()) }
             refresh()
         } catch (e: Exception) {
             Log.w("MounvixRestore", "restore last tree failed: ${e.message}")
@@ -85,7 +85,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
     fun onTreeGranted(treeUri: Uri) {
         source = SafStorageSource(appContext, treeUri)
         try { prefs.edit().putString("last_tree_uri", treeUri.toString()).apply() } catch (_: Exception) {}
-        _state.update { it.copy(treeUri = treeUri, pathStack = emptyList()) }
+        _state.update { it.copy(treeUri = treeUri, remoteMode = false, pathStack = emptyList()) }
         refresh()
     }
 
@@ -100,6 +100,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         _state.update { s ->
             s.copy(
                 treeUri = uri,
+                remoteMode = false,
                 pathStack = relPath.split("/").filter { it.isNotBlank() },
                 selection = emptySet(),
                 search = "",
@@ -119,7 +120,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
             val src = WebDavStorageSource(WebDavServer(baseUrl = url, user = user, password = password, trustAll = trustAll))
             src.listDir("")
             source = src
-            _state.update { it.copy(treeUri = null, pathStack = emptyList(), selection = emptySet(), search = "", error = null) }
+            _state.update { it.copy(treeUri = null, remoteMode = true, pathStack = emptyList(), selection = emptySet(), search = "", error = null) }
             prefs.edit()
                 .putString("webdav_url", url).putString("webdav_user", user)
                 .putString("webdav_pass", password).putBoolean("webdav_trust", trustAll).apply()
@@ -145,21 +146,22 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         val state = _state.value
         val path = state.currentPath
         _state.update { it.copy(loading = true, error = null) }
-        val entries = try {
-            src.listDir(path).sortedWith(sorter(state.sortBy))
-        } catch (e: Exception) {
-            _state.update { it.copy(loading = false, error = e.message ?: "Ошибка чтения") }
-            return
-        }
-        _state.update {
-            it.copy(
-                loading = false,
-                error = null,
-                entries = if (state.search.isBlank()) entries
-                    else entries.filter { en -> en.name.contains(state.search, ignoreCase = true) },
-                selection = emptySet(),
-                favoriteKeys = favoriteKeySet
-            )
+        scope.launch {
+            try {
+                val entries = src.listDir(path).sortedWith(sorter(state.sortBy))
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        error = null,
+                        entries = if (state.search.isBlank()) entries
+                            else entries.filter { en -> en.name.contains(state.search, ignoreCase = true) },
+                        selection = emptySet(),
+                        favoriteKeys = favoriteKeySet
+                    )
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(loading = false, error = e.message ?: "Ошибка чтения") }
+            }
         }
     }
 

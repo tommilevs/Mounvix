@@ -179,7 +179,7 @@ fun ExplorerScreen(viewModel: MounvixViewModel) {
             )
         },
         bottomBar = {
-            if (state.treeUri != null) {
+            if (state.hasSource) {
                 Surface(tonalElevation = 4.dp) {
                     when {
                         state.isSelecting -> SelectionBar(viewModel = viewModel, state = state, onDialog = { dialog = it })
@@ -197,7 +197,7 @@ fun ExplorerScreen(viewModel: MounvixViewModel) {
             }
         }
     ) { padding ->
-        if (state.treeUri == null) {
+        if (!state.hasSource) {
             NoRootView(onPick = onPick, modifier = Modifier.padding(padding))
         } else {
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {

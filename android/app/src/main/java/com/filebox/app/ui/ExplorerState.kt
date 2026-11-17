@@ -11,6 +11,8 @@ data class ClipboardInfo(val paths: List<String>, val cut: Boolean)
 
 data class ExplorerState(
     val treeUri: Uri? = null,
+    /** true — источник WebDAV (без SAF-дерева). */
+    val remoteMode: Boolean = false,
     val pathStack: List<String> = emptyList(),
     val entries: List<FileEntry> = emptyList(),
     val selection: Set<String> = emptySet(),
@@ -27,6 +29,7 @@ data class ExplorerState(
 ) {
     val currentPath: String get() = pathStack.joinToString("/")
     val canGoBack: Boolean get() = pathStack.isNotEmpty()
+    val hasSource: Boolean get() = treeUri != null || remoteMode
     val isSelecting: Boolean get() = selection.isNotEmpty()
 }
 

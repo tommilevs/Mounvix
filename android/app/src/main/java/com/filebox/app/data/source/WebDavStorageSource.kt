@@ -77,6 +77,7 @@ class WebDavStorageSource(private val server: WebDavServer) : StorageSource {
                 )
             )
         }
+        System.out.println("listDir path=$path items=${out.size}")
         return out
     }
 
@@ -168,6 +169,7 @@ class WebDavStorageSource(private val server: WebDavServer) : StorageSource {
             val factory = DocumentBuilderFactory.newInstance()
             factory.isNamespaceAware = true
             val doc = factory.newDocumentBuilder().parse(InputSource(StringReader(text)))
+            System.out.println("PROPFIND OK $url bytes=${text.length}")
             return doc
         }
     }
