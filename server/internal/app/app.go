@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tommilevs/Mounvix/server/internal/backup"
 	"github.com/tommilevs/Mounvix/server/internal/share"
 	"github.com/tommilevs/Mounvix/server/internal/version"
 	"golang.org/x/net/webdav"
@@ -20,6 +21,7 @@ type App struct {
 	tmpl    *template.Template
 	locks   webdav.LockSystem
 	shares  *share.Manager
+	backups *backup.Manager
 	started time.Time
 }
 
@@ -32,7 +34,11 @@ func New(cfg Config, cfgPath string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, started: time.Now(), locks: webdav.NewMemLS()}
+	bk, err := backup.New(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, started: time.Now(), locks: webdav.NewMemLS()}
 	a.tmpl = mustTemplates(a)
 	a.mux = http.NewServeMux()
 	a.routes()
@@ -60,6 +66,10 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/api/v1/shares", a.handleSharesAPI)
 	a.mux.HandleFunc("/api/v1/shares/", a.handleShareRevokeAPI)
 	a.mux.HandleFunc("/s/", a.handlePublicShare)
+	a.mux.HandleFunc("/backup", a.requireAuth(a.handleBackupPage))
+	a.mux.HandleFunc("/api/v1/backup/jobs", a.handleBackupJobsAPI)
+	a.mux.HandleFunc("/api/v1/backup/run", a.handleBackupRunAPI)
+	a.mux.HandleFunc("/api/v1/backup/report", a.handleBackupReportAPI)
 }
 
 func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {

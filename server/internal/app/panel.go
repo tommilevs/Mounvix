@@ -13,7 +13,7 @@ func stringsRU() map[string]string {
 	return map[string]string{
 		"login": "Вход", "username": "Логин", "password": "Пароль", "signin": "Войти",
 		"nav_overview": "Обзор", "nav_folders": "Доступ к папкам", "nav_users": "Пользователи",
-		"nav_shares": "Шары", "nav_media": "Медиа", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
+		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
 		"overview": "Обзор", "version": "Версия", "uptime": "Аптайм", "roots": "Папки",
 		"users": "Пользователи", "sessions": "Сессии", "audit": "Аудит",
 		"folders": "Доступ к папкам", "name": "Имя", "path": "Путь", "readonly": "Только чтение",
@@ -32,7 +32,7 @@ func stringsEN() map[string]string {
 	return map[string]string{
 		"login": "Login", "username": "Username", "password": "Password", "signin": "Sign in",
 		"nav_overview": "Overview", "nav_folders": "Folders access", "nav_users": "Users",
-		"nav_shares": "Shares", "nav_media": "Media", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
+		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
 		"overview": "Overview", "version": "Version", "uptime": "Uptime", "roots": "Folders",
 		"users": "Users", "sessions": "Sessions", "audit": "Audit",
 		"folders": "Folders access", "name": "Name", "path": "Path", "readonly": "Read-only",
@@ -260,7 +260,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <title>Mounvix — {{.Title}}</title><link rel="stylesheet" href="/style.css"></head><body>
 {{if .User}}<header><b>Mounvix</b><nav>
 <a href="/">{{T "nav_overview"}}</a><a href="/folders">{{T "nav_folders"}}</a><a href="/users">{{T "nav_users"}}</a>
-<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
+<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/backup">{{T "nav_backup"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
 <form method="post" action="/logout"><button>{{T "logout"}}</button></form>
 </nav></header>{{end}}<main>
 {{end}}
@@ -384,6 +384,30 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 {{else}}
 <p class="muted">В этой папке нет фотографий или видео.</p>
 {{end}}
+{{template "foot.html" .}}{{end}}
+
+{{define "backup.html"}}{{template "head.html" .}}
+<h1>Бэкап</h1>
+<form method="post" action="/backup" class="row">
+<input type="hidden" name="action" value="create">
+<input name="name" placeholder="Название" required>
+<input name="source" placeholder="Исходная папка (сервер)" required style="min-width:240px">
+<input name="local_path" placeholder="Локальная папка/USB" style="min-width:180px">
+<input name="webdav_url" placeholder="WebDAV URL (необяз.)" style="min-width:200px">
+<input name="webdav_user" placeholder="WebDAV логин" style="width:130px">
+<input name="webdav_pass" placeholder="WebDAV пароль" style="width:130px">
+<button>Создать задание</button>
+</form>
+<table><tr><th>Задание</th><th>Источник</th><th>Цели</th><th>Последний запуск</th><th></th></tr>
+{{range .Jobs}}<tr>
+<td>{{.Name}}</td><td class="muted">{{.Source}}</td>
+<td>{{range .Targets}}{{.Type}}: {{if eq .Type "local"}}{{.Path}}{{else}}{{.URL}}{{end}}<br>{{end}}</td>
+<td>{{if .LastRun.IsZero}}—{{else}}{{fmtTime .LastRun}}{{end}}
+{{with index $.Reports .ID}}<br><span class="muted">файлов: {{.Files}}, байт: {{.Bytes}}, пропущено: {{.Skipped}}, ошибок: {{len .Errors}}</span>{{end}}</td>
+<td>
+<form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="run"><input type="hidden" name="id" value="{{.ID}}"><button>Запустить</button></form>
+<form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{.ID}}"><button>Удалить</button></form>
+</td></tr>{{end}}</table>
 {{template "foot.html" .}}{{end}}
 `
 
