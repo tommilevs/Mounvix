@@ -122,6 +122,75 @@ func TestWebDAVTarget(t *testing.T) {
 	}
 }
 
+func TestRestoreWebDAV(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "PROPFIND":
+			p := r.URL.Path
+			type ent struct {
+				href string
+				col  bool
+			}
+			var list []ent
+			switch p {
+			case "/dav/b":
+				list = []ent{{"/dav/b", true}, {"/dav/b/a.txt", false}, {"/dav/b/sub/", true}}
+			case "/dav/b/sub":
+				list = []ent{{"/dav/b/sub", true}, {"/dav/b/sub/c.txt", false}}
+			default:
+				w.WriteHeader(404)
+				return
+			}
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(207)
+			var b strings.Builder
+			b.WriteString(`<?xml version="1.0"?><D:multistatus xmlns:D="DAV:">`)
+			for _, e := range list {
+				b.WriteString("<D:response><D:href>" + e.href + "</D:href><D:propstat><D:prop><D:resourcetype>")
+				if e.col {
+					b.WriteString("<D:collection/>")
+				}
+				b.WriteString("</D:resourcetype><D:getcontentlength>4</D:getcontentlength></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>")
+			}
+			b.WriteString("</D:multistatus>")
+			_, _ = w.Write([]byte(b.String()))
+		case http.MethodGet:
+			switch r.URL.Path {
+			case "/dav/b/a.txt":
+				_, _ = w.Write([]byte("v1"))
+			case "/dav/b/sub/c.txt":
+				_, _ = w.Write([]byte("v2"))
+			default:
+				w.WriteHeader(404)
+			}
+		default:
+			w.WriteHeader(405)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	os.MkdirAll(src, 0o755)
+	m, _ := New(t.TempDir())
+	job, err := m.Create("dav-restore", src, []Target{{Type: "webdav", URL: server.URL + "/dav/b"}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out")
+	rep, err := m.Restore(context.Background(), job.ID, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Files != 2 || len(rep.Errors) != 0 {
+		t.Fatalf("dav restore files=%d errors=%v", rep.Files, rep.Errors)
+	}
+	a, _ := os.ReadFile(filepath.Join(out, "a.txt"))
+	c, _ := os.ReadFile(filepath.Join(out, "sub", "c.txt"))
+	if string(a) != "v1" || string(c) != "v2" {
+		t.Fatalf("dav restore contents a=%q c=%q", a, c)
+	}
+}
 func TestRestoreLocal(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")

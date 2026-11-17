@@ -82,15 +82,26 @@ func (m *Manager) Restore(ctx context.Context, id, dest string) (Report, error) 
 	if dest == "" {
 		return Report{}, errors.New("dest required")
 	}
-	var local *Target
+	var local, dav *Target
 	for i := range job.Targets {
-		if job.Targets[i].Type == "local" {
+		if job.Targets[i].Type == "local" && local == nil {
 			local = &job.Targets[i]
-			break
+		}
+		if job.Targets[i].Type == "webdav" && dav == nil {
+			dav = &job.Targets[i]
 		}
 	}
 	if local == nil {
-		return Report{}, errors.New("local target required for restore")
+		if dav == nil {
+			return Report{}, errors.New("restore target required")
+		}
+		rep := Report{JobID: id, Started: time.Now()}
+		err := m.restoreWebDAV(ctx, job, *dav, dest, &rep)
+		rep.Finished = time.Now()
+		m.mu.Lock()
+		m.last[id+"-restore"] = rep
+		m.mu.Unlock()
+		return rep, err
 	}
 	rep := Report{JobID: id, Started: time.Now()}
 	walkErr := filepath.WalkDir(local.Path, func(p string, d fs.DirEntry, err error) error {
