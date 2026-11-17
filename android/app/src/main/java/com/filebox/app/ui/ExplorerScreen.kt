@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -342,6 +343,11 @@ private fun SelectionBar(viewModel: MounvixViewModel, state: ExplorerState, onDi
         if (single) {
             val sel = state.entries.firstOrNull { it.path in state.selection }
             if (sel != null && sel.type == FileType.FILE) {
+                if (state.remoteMode) {
+                    IconButton(onClick = { viewModel.saveSelectedToDownloads() }) {
+                        Icon(Icons.Filled.Download, contentDescription = "Скачать в Загрузки")
+                    }
+                }
                 IconButton(onClick = { if (viewModel.openWith(sel)) viewModel.clearSelection() }) {
                     Icon(Icons.Filled.OpenInNew, contentDescription = "Открыть")
                 }

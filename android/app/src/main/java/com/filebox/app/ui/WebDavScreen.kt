@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.mounvix.app.BuildConfig
+import com.mounvix.app.data.net.UpdateChecker
 import com.mounvix.app.data.source.WebDavServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -54,6 +56,8 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
     var smbPass by rememberSaveable { mutableStateOf(prefs.getString("smb_pass", "") ?: "") }
     var errSmb by remember { mutableStateOf<String?>(null) }
     var busySmb by remember { mutableStateOf(false) }
+    var updateMsg by remember { mutableStateOf<String?>(null) }
+    var busyUpdt by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Scaffold(topBar = { TopAppBar(title = { Text("Серверы") }) }) { padding ->
@@ -148,6 +152,29 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text(if (busySmb) "Подключение…" else "Подключиться к SMB") }
+            Text("Приложение", style = MaterialTheme.typography.headlineSmall)
+            updateMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            Button(
+                enabled = !busyUpdt,
+                onClick = {
+                    busyUpdt = true
+                    updateMsg = null
+                    scope.launch {
+                        val res = withContext(Dispatchers.IO) {
+                            runCatching { UpdateChecker().check(BuildConfig.VERSION_NAME) }
+                        }
+                        busyUpdt = false
+                        updateMsg = res.fold(
+                            { u ->
+                                if (u.available) "Доступна версия " + u.tag + ": " + u.url
+                                else "У вас последняя версия (" + BuildConfig.VERSION_NAME + ")"
+                            },
+                            { e -> "Ошибка проверки: " + e.message }
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (busyUpdt) "Проверка…" else "Проверить обновления") }
             Text(
                 "Для своего сервера: http://IP:48100/dav/<корень>/; " +
                     "Keenetic native WebDAV обычно …/webdav/. Простой режим не требует установленного Mounvix.",

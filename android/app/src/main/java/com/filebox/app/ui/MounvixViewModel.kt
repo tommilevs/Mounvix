@@ -1,8 +1,10 @@
 package com.mounvix.app.ui
 
 import android.content.Context
+import android.content.ContentValues
 import android.content.Intent
 import android.net.Uri
+import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.core.content.FileProvider
@@ -359,6 +361,48 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
             refresh()
         } else showToast("Не удалось вставить (возможно, имена уже заняты)")
         return ok
+    }
+
+    /** Скачать выбранный удалённый файл в системные «Загрузки» (MediaStore). */
+    fun saveSelectedToDownloads(): Boolean {
+        val src = source ?: return false
+        val state = _state.value
+        val path = state.selection.firstOrNull() ?: return false
+        val entry = state.entries.firstOrNull { it.path == path } ?: return false
+        if (entry.type != FileType.FILE) return false
+        scope.launch {
+            try {
+                val tmp = File(appContext.cacheDir, "dl_" + System.currentTimeMillis() + "_" + entry.name)
+                if (!src.downloadTo(entry.path, tmp)) {
+                    withContext(Dispatchers.Main) { showToast("Источник не поддерживает скачивание") }
+                    return@launch
+                }
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, entry.name)
+                    put(MediaStore.Downloads.MIME_TYPE, src.mimeTypeOf(entry.path) ?: "application/octet-stream")
+                    put(MediaStore.Downloads.RELATIVE_PATH, "Download/Mounvix")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                val resolver = appContext.contentResolver
+                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                    ?: throw IllegalStateException("MediaStore insert failed")
+                resolver.openOutputStream(uri)?.use { out ->
+                    tmp.inputStream().use { input -> input.copyTo(out) }
+                }
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+                tmp.delete()
+                withContext(Dispatchers.Main) {
+                    showToast("Скачано в Загрузки: " + entry.name)
+                    clearSelection()
+                }
+            } catch (e: Exception) {
+                Log.w("MounvixDownload", "save failed: ${e.message}", e)
+                withContext(Dispatchers.Main) { showToast("Не удалось скачать «${entry.name}»: ${e.message}") }
+            }
+        }
+        return true
     }
 
     /** Открыть файл другим приложением (chooser). Папка — навигация. Успех записи файла попадает в «Недавние». */
