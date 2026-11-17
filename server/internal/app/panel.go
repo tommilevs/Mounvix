@@ -13,7 +13,7 @@ func stringsRU() map[string]string {
 	return map[string]string{
 		"login": "Вход", "username": "Логин", "password": "Пароль", "signin": "Войти",
 		"nav_overview": "Обзор", "nav_folders": "Доступ к папкам", "nav_users": "Пользователи",
-		"nav_shares": "Шары", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
+		"nav_shares": "Шары", "nav_media": "Медиа", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
 		"overview": "Обзор", "version": "Версия", "uptime": "Аптайм", "roots": "Папки",
 		"users": "Пользователи", "sessions": "Сессии", "audit": "Аудит",
 		"folders": "Доступ к папкам", "name": "Имя", "path": "Путь", "readonly": "Только чтение",
@@ -32,7 +32,7 @@ func stringsEN() map[string]string {
 	return map[string]string{
 		"login": "Login", "username": "Username", "password": "Password", "signin": "Sign in",
 		"nav_overview": "Overview", "nav_folders": "Folders access", "nav_users": "Users",
-		"nav_shares": "Shares", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
+		"nav_shares": "Shares", "nav_media": "Media", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
 		"overview": "Overview", "version": "Version", "uptime": "Uptime", "roots": "Folders",
 		"users": "Users", "sessions": "Sessions", "audit": "Audit",
 		"folders": "Folders access", "name": "Name", "path": "Path", "readonly": "Read-only",
@@ -63,7 +63,14 @@ input,select,button{font:inherit;padding:6px 8px;border:1px solid #cfd6df;border
 button{background:#1f4e79;color:#fff;border-color:#1f4e79;cursor:pointer}button:hover{background:#2a6396}
 .login{display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1b2d}
 .login .card{width:340px}.login h1{color:#1f4e79}.err{color:#b00020}
-footer{padding:12px 16px;color:#68727e;font-size:12px}`
+footer{padding:12px 16px;color:#68727e;font-size:12px}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin:16px 0}
+.gallery .item{background:#fff;border:1px solid #e6e9ee;border-radius:10px;overflow:hidden;transition:transform .15s ease-out,box-shadow .15s ease-out}
+.gallery .item:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(15,27,45,.08)}
+.gallery .thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#eef1f6}
+.gallery .cap{padding:8px 10px;font-size:13px;display:flex;justify-content:space-between;gap:8px}
+.gallery .vid{display:flex;align-items:center;justify-content:center;height:100%;font-size:40px;color:#1f4e79;background:#eef1f6}
+`
 
 type permRoot struct {
 	Name     string
@@ -253,7 +260,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <title>Mounvix — {{.Title}}</title><link rel="stylesheet" href="/style.css"></head><body>
 {{if .User}}<header><b>Mounvix</b><nav>
 <a href="/">{{T "nav_overview"}}</a><a href="/folders">{{T "nav_folders"}}</a><a href="/users">{{T "nav_users"}}</a>
-<a href="/shares">{{T "nav_shares"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
+<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
 <form method="post" action="/logout"><button>{{T "logout"}}</button></form>
 </nav></header>{{end}}<main>
 {{end}}
@@ -357,6 +364,26 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <td>{{.Root}}/{{.Path}}</td><td>{{fmtTime .ExpiresAt}}</td><td>{{if .PasswordHash}}да{{else}}нет{{end}}</td>
 <td><form method="post" action="/shares"><input type="hidden" name="action" value="revoke"><input type="hidden" name="token" value="{{.Token}}"><button>Отозвать</button></form></td></tr>
 {{end}}</table>
+{{template "foot.html" .}}{{end}}
+
+{{define "media.html"}}{{template "head.html" .}}
+<h1>Медиа</h1>
+<form method="get" action="/media" class="row">
+<label>Папка: <select name="root">{{range .Cfg.Roots}}<option value="{{.Name}}" {{if eq .Name $.Root}}selected{{end}}>{{.Name}} ({{.Path}})</option>{{end}}</select></label>
+<input name="path" value="{{.Path}}" placeholder="путь внутри (необязательно)" style="min-width:220px">
+<button>Открыть</button>
+</form>
+{{if .Entries}}
+<div class="gallery">
+{{range .Entries}}
+<a class="item" href="{{.FileURL}}" target="_blank">
+{{if .IsVideo}}<div class="thumb vid">🎬</div>{{else}}<img class="thumb" src="{{.ThumbURL}}" loading="lazy" alt="{{.Name}}">{{end}}
+<div class="cap"><span>{{.Name}}</span></div>
+</a>{{end}}
+</div>
+{{else}}
+<p class="muted">В этой папке нет фотографий или видео.</p>
+{{end}}
 {{template "foot.html" .}}{{end}}
 `
 
