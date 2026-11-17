@@ -433,7 +433,25 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
     }
 
     /** Честная проверка доступности сохранённого объекта; без падений. */
+    /** Если treeId — WebDAV-корень из prefs, вернуть источник; иначе null. */
+    private fun webDavSourceFor(treeId: String): WebDavStorageSource? {
+        val url = prefs.getString("webdav_url", null) ?: return null
+        if (url.trimEnd('/') != treeId.trimEnd('/')) return null
+        val user = prefs.getString("webdav_user", "") ?: ""
+        val pass = prefs.getString("webdav_pass", "") ?: ""
+        val trust = prefs.getBoolean("webdav_trust", true)
+        return WebDavStorageSource(WebDavServer(baseUrl = treeId, user = user, password = pass, trustAll = trust))
+    }
+
     private fun isSavedAvailable(treeId: String, relPath: String, wantFolder: Boolean, cache: HashMap<String, StorageSource>): Boolean {
+        webDavSourceFor(treeId)?.let { remote ->
+            return try {
+                val st = remote.stat(relPath) ?: return false
+                if (wantFolder) st.type == FileType.FOLDER else st.type == FileType.FILE
+            } catch (e: Exception) {
+                false
+            }
+        }
         return try {
             val uri = Uri.parse(treeId)
             val src = cache.getOrPut(treeId) { SafStorageSource(appContext, uri) }
@@ -522,6 +540,27 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
 
     /** Открыть сохранённый файл/папку из «Избранного» и «Недавних». */
     fun openSaved(treeId: String, relPath: String): Boolean {
+        val remote = webDavSourceFor(treeId)
+        if (remote != null) {
+            val st = try { remote.stat(relPath) } catch (e: Exception) { null }
+                ?: run { showToast("Объект недоступен"); return false }
+            if (st.type == FileType.FOLDER) {
+                source = remote
+                _state.update { s ->
+                    s.copy(
+                        treeUri = null,
+                        remoteMode = true,
+                        pathStack = relPath.split("/").filter { it.isNotBlank() },
+                        selection = emptySet(),
+                        search = "",
+                        error = null
+                    )
+                }
+                refresh()
+                return true
+            }
+            return openRemoteFile(st, remote)
+        }
         val uri = try { Uri.parse(treeId) } catch (e: Exception) { return false }
         val src = SafStorageSource(appContext, uri)
         val st = try { src.stat(relPath) } catch (e: Exception) { null }
