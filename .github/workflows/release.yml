@@ -1,0 +1,42 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+      - name: Test
+        run: cd server && go test ./...
+      - name: Cross-build
+        run: VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-server.sh
+      - name: Packages
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          for a in arm64 arm mipsle mips amd64 386; do ./scripts/make-ipk.sh "$a" "$V"; done
+          for a in amd64 arm64 arm 386; do ./scripts/make-deb.sh "$a" "$V" || true; done
+          for a in arm64 arm mipsle mips amd64 386; do ./scripts/package-tar.sh "$a" "$V"; done
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mounvix-dist
+          path: dist/
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/server/sha256sums.txt
+            dist/ipk/*.ipk
+            dist/deb/*.deb
+            dist/tar/*.tar.gz

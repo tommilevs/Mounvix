@@ -1,0 +1,6 @@
+# Единые LF-окончания строк для всех текстовых файлов — bash-скрипты должны
+# оставаться исполняемыми и на Windows-клонах (shebang ломается от CRLF).
+* text=auto eol=lf
+
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
