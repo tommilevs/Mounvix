@@ -7,6 +7,10 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.MediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody
+import okio.BufferedSink
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.w3c.dom.Document
@@ -135,6 +139,31 @@ class WebDavStorageSource(private val server: WebDavServer) : StorageSource {
         mapOf("Destination" to buildUrl(dst, false).toString(), "Overwrite" to "F"),
     ) in 200..299
 
+    override fun upload(local: File, path: String, onProgress: (Long, Long) -> Unit): Boolean {
+        val total = local.length()
+        val body = object : RequestBody() {
+            override fun contentType(): MediaType? = "application/octet-stream".toMediaTypeOrNull()
+            override fun contentLength() = total
+            override fun writeTo(sink: BufferedSink) {
+                var done = 0L
+                local.inputStream().use { input ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        sink.write(buf, 0, n)
+                        done += n
+                        onProgress(done, total)
+                    }
+                }
+            }
+        }
+        val req = Request.Builder().url(buildUrl(path, false)).put(body).build()
+        client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw java.io.IOException("PUT ${resp.code}")
+        }
+        return true
+    }
     override fun downloadTo(path: String, target: java.io.File): Boolean = try {
         download(path, target); true
     } catch (e: Exception) {

@@ -155,6 +155,37 @@ class SmbStorageSource(private val server: SmbServer) : StorageSource {
 
     override fun move(src: String, dst: String): Boolean = false
 
+    override fun upload(local: File, path: String, onProgress: (Long, Long) -> Unit): Boolean = try {
+        withShare { share ->
+            share.openFile(
+                path.trim('/'),
+                EnumSet.of(AccessMask.GENERIC_WRITE),
+                EnumSet.of(FileAttributes.FILE_ATTRIBUTE_ARCHIVE),
+                SMB2ShareAccess.ALL,
+                SMB2CreateDisposition.FILE_OVERWRITE_IF,
+                EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE),
+            ).use { f ->
+                f.outputStream.use { out ->
+                    val total = local.length()
+                    var done = 0L
+                    local.inputStream().use { input ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n <= 0) break
+                            out.write(buf, 0, n)
+                            done += n
+                            onProgress(done, total)
+                        }
+                    }
+                }
+            }
+        }
+        true
+    } catch (e: Exception) {
+        System.out.println("SMB upload error: ${e.message}")
+        false
+    }
     override fun downloadTo(path: String, target: File): Boolean = try {
         target.parentFile?.mkdirs()
         withShare { share ->

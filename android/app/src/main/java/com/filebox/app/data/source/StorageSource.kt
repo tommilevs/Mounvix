@@ -20,6 +20,8 @@ interface StorageSource {
     fun move(src: String, dst: String): Boolean
     /** Скачать файл в target (для удалённых источников); false — не поддержано. */
     fun downloadTo(path: String, target: java.io.File): Boolean = false
+    /** Загрузить локальный файл в path (для удалённых источников); false — не поддержано. */
+    fun upload(local: java.io.File, path: String, onProgress: (Long, Long) -> Unit = { _, _ -> }): Boolean = false
     fun uriOf(path: String): Uri? = null
     fun mimeTypeOf(path: String): String? = null
 

@@ -12,12 +12,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +68,7 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
     var errSftp by remember { mutableStateOf<String?>(null) }
     var busySftp by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val transfers by viewModel.transfers.collectAsState()
 
     Scaffold(topBar = { TopAppBar(title = { Text("Серверы") }) }) { padding ->
         Column(
@@ -217,6 +220,20 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text(if (busySftp) "Подключение…" else "Подключиться к SFTP") }
+            Text("Передачи", style = MaterialTheme.typography.headlineSmall)
+            if (transfers.isEmpty()) {
+                Text("Пока нет передач", style = MaterialTheme.typography.bodySmall)
+            }
+            transfers.takeLast(5).forEach { t ->
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(t.name + " — " + t.state, style = MaterialTheme.typography.bodySmall)
+                    val p = if (t.total > 0) (t.done.toFloat() / t.total.toFloat()).coerceIn(0f, 1f) else 0f
+                    LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+            Button(onClick = { viewModel.uploadTestFile() }, modifier = Modifier.fillMaxWidth()) {
+                Text("Тест загрузки в текущую папку")
+            }
             Text(
                 "Для своего сервера: http://IP:48100/dav/<корень>/; " +
                     "Keenetic native WebDAV обычно …/webdav/. Простой режим не требует установленного Mounvix.",

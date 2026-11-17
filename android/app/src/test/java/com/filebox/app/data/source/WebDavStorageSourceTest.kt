@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.File
 
 class WebDavStorageSourceTest {
 
@@ -94,5 +95,26 @@ class WebDavStorageSourceTest {
         val req = server.takeRequest()
         assertEquals("MOVE", req.method)
         assertEquals(server.url("/dav/share/docs/b.txt").toString(), req.getHeader("Destination"))
+    }
+
+    @Test
+    fun uploadSendsPutWithBodyAndProgress() {
+        server.enqueue(MockResponse().setResponseCode(201))
+        val tmp = File.createTempFile("mvx-upload", ".txt")
+        tmp.writeText("hello-upload")
+        val progress = ArrayList<Long>()
+        try {
+            assertTrue(src().upload(tmp, "up.txt") { done, total ->
+                progress.add(done)
+                assertEquals(12L, total)
+            })
+        } finally {
+            tmp.delete()
+        }
+        val req = server.takeRequest()
+        assertEquals("PUT", req.method)
+        assertEquals(12L, req.bodySize)
+        assertEquals("hello-upload", req.body.readUtf8())
+        assertEquals(12L, progress.last())
     }
 }

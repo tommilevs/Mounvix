@@ -79,6 +79,8 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
 
     private val _recentsUi = MutableStateFlow(RecentsUi())
     private val _galleryUi = MutableStateFlow(GalleryUi())
+    private val _transfers = MutableStateFlow<List<TransferItem>>(emptyList())
+    val transfers: StateFlow<List<TransferItem>> = _transfers.asStateFlow()
     val galleryUi: StateFlow<GalleryUi> = _galleryUi.asStateFlow()
     val recentsUi: StateFlow<RecentsUi> = _recentsUi.asStateFlow()
 
@@ -907,6 +909,35 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
             showToast(e.message ?: "Не удалось открыть")
             false
         }
+    }
+    // ---------- Передачи ----------
+
+    /** Тестовая загрузка в текущую папку (для проверки transfer-пайплайна). */
+    fun uploadTestFile(): Boolean {
+        val src = source ?: return false
+        scope.launch {
+            val stamp = System.currentTimeMillis()
+            val name = "mounvix-test-" + stamp + ".txt"
+            val tmp = File(appContext.cacheDir, name)
+            tmp.writeText("Mounvix upload test " + stamp)
+            val id = stamp
+            _transfers.update { it + TransferItem(id, name, tmp.length(), 0, "идёт") }
+            val ok = try {
+                src.upload(tmp, name) { done, total ->
+                    _transfers.update { list ->
+                        list.map { if (it.id == id) it.copy(done = done, total = total) else it }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("MounvixUpload", "upload failed: ${e.message}", e)
+                false
+            }
+            _transfers.update { list -> list.map { if (it.id == id) it.copy(state = if (ok) "готово" else "ошибка") else it } }
+            tmp.delete()
+            if (ok) refresh()
+            withContext(Dispatchers.Main) { showToast(if (ok) "Загружено: " + name else "Ошибка загрузки") }
+        }
+        return true
     }
     override fun onCleared() {
         scope.cancel()

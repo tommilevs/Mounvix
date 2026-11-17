@@ -142,6 +142,28 @@ class SftpStorageSource(private val server: SftpServer) : StorageSource {
     override fun copy(src: String, dst: String): Boolean = false
     override fun move(src: String, dst: String): Boolean = false
 
+    override fun upload(local: File, path: String, onProgress: (Long, Long) -> Unit): Boolean = try {
+        withSftp { sftp ->
+            sftp.open(remotePath(path.trim('/')), EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC)).use { f ->
+                val total = local.length()
+                var offset = 0L
+                local.inputStream().use { input ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        f.write(offset, buf, 0, n)
+                        offset += n
+                        onProgress(offset, total)
+                    }
+                }
+            }
+        }
+        true
+    } catch (e: Exception) {
+        System.out.println("SFTP upload error: ${e.message}")
+        false
+    }
     override fun downloadTo(path: String, target: File): Boolean = try {
         target.parentFile?.mkdirs()
         withSftp { sftp ->

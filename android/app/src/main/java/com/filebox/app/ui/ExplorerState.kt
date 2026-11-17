@@ -55,3 +55,10 @@ data class GalleryUi(
     val error: String? = null,
     val items: List<GalleryItem> = emptyList()
 )
+data class TransferItem(
+    val id: Long,
+    val name: String,
+    val total: Long,
+    val done: Long,
+    val state: String
+)
