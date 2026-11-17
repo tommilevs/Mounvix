@@ -70,6 +70,7 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/api/v1/backup/jobs", a.handleBackupJobsAPI)
 	a.mux.HandleFunc("/api/v1/backup/run", a.handleBackupRunAPI)
 	a.mux.HandleFunc("/api/v1/backup/report", a.handleBackupReportAPI)
+	a.mux.HandleFunc("/api/v1/backup/restore", a.handleBackupRestoreAPI)
 }
 
 func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {

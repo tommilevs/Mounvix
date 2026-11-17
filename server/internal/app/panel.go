@@ -409,6 +409,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <td>
 <form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="run"><input type="hidden" name="id" value="{{.ID}}"><button>Запустить</button></form>
 <form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{.ID}}"><button>Удалить</button></form>
+<form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="restore"><input type="hidden" name="id" value="{{.ID}}"><input name="dest" placeholder="куда восстановить" style="width:150px"><button>Восстановить</button></form>
 </td></tr>{{end}}</table>
 {{template "foot.html" .}}{{end}}
 `

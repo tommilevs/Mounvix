@@ -65,6 +65,14 @@ func (a *App) handleBackupPage(w http.ResponseWriter, r *http.Request) {
 			} else {
 				a.store.Audit(u.Name, "backup_run", id)
 			}
+		case "restore":
+			id := r.PostFormValue("id")
+			dest := strings.TrimSpace(r.PostFormValue("dest"))
+			if _, err := a.backups.Restore(r.Context(), id, dest); err != nil {
+				a.store.Audit(u.Name, "backup_restore_failed", id+": "+err.Error())
+			} else {
+				a.store.Audit(u.Name, "backup_restore", id+" -> "+dest)
+			}
 		case "delete":
 			if a.backups.Delete(r.PostFormValue("id")) {
 				a.store.Audit(u.Name, "backup_delete", r.PostFormValue("id"))

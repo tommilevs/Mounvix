@@ -73,6 +73,66 @@ func New(dir string) (*Manager, error) {
 	return m, nil
 }
 
+// Restore восстанавливает файлы из локальной цели бэкапа в dest (с перезаписью).
+func (m *Manager) Restore(ctx context.Context, id, dest string) (Report, error) {
+	job := m.Get(id)
+	if job == nil {
+		return Report{}, errors.New("job not found")
+	}
+	if dest == "" {
+		return Report{}, errors.New("dest required")
+	}
+	var local *Target
+	for i := range job.Targets {
+		if job.Targets[i].Type == "local" {
+			local = &job.Targets[i]
+			break
+		}
+	}
+	if local == nil {
+		return Report{}, errors.New("local target required for restore")
+	}
+	rep := Report{JobID: id, Started: time.Now()}
+	walkErr := filepath.WalkDir(local.Path, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			rep.Errors = append(rep.Errors, p+": "+err.Error())
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			rep.Errors = append(rep.Errors, p+": "+err.Error())
+			return nil
+		}
+		rel, err := filepath.Rel(local.Path, p)
+		if err != nil {
+			rep.Errors = append(rep.Errors, p+": "+err.Error())
+			return nil
+		}
+		if err := copyLocal(p, filepath.Join(dest, rel), info); err != nil {
+			rep.Errors = append(rep.Errors, rel+": "+err.Error())
+			return nil
+		}
+		rep.Files++
+		rep.Bytes += info.Size()
+		return nil
+	})
+	if walkErr != nil {
+		return rep, walkErr
+	}
+	rep.Finished = time.Now()
+	m.mu.Lock()
+	m.last[id+"-restore"] = rep
+	m.mu.Unlock()
+	return rep, nil
+}
 func (m *Manager) List() []*Job {
 	m.mu.Lock()
 	defer m.mu.Unlock()

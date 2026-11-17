@@ -122,6 +122,35 @@ func TestWebDAVTarget(t *testing.T) {
 	}
 }
 
+func TestRestoreLocal(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	out := filepath.Join(dir, "restored")
+	os.MkdirAll(src, 0o755)
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("v1"), 0o644)
+	m, _ := New(t.TempDir())
+	job, err := m.Create("restore", src, []Target{{Type: "local", Path: dst}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Run(context.Background(), job.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Меняем источник; restore должен вернуть сохранённую версию.
+	os.WriteFile(filepath.Join(src, "a.txt"), []byte("v2"), 0o644)
+	rep, err := m.Restore(context.Background(), job.ID, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Files != 1 || len(rep.Errors) != 0 {
+		t.Fatalf("restore files=%d errors=%v", rep.Files, rep.Errors)
+	}
+	b, err := os.ReadFile(filepath.Join(out, "a.txt"))
+	if err != nil || string(b) != "v1" {
+		t.Fatalf("restored content=%q err=%v", b, err)
+	}
+}
 func TestRunDue(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
