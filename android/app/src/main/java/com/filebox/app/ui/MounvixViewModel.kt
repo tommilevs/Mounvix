@@ -17,6 +17,8 @@ import com.mounvix.app.data.model.FileType
 import com.mounvix.app.data.repository.FavoriteRepository
 import com.mounvix.app.data.repository.RecentRepository
 import com.mounvix.app.data.source.SafStorageSource
+import com.mounvix.app.data.source.SftpServer
+import com.mounvix.app.data.source.SftpStorageSource
 import com.mounvix.app.data.source.SmbServer
 import com.mounvix.app.data.source.SmbStorageSource
 import com.mounvix.app.data.source.StorageSource
@@ -83,6 +85,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         restoreLastTree()
         restoreLastWebDav()
         restoreLastSmb()
+        restoreLastSftp()
     }
 
     // ---------- Вкладка «Файлы» ----------
@@ -185,6 +188,49 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         val pass = prefs.getString("smb_pass", "") ?: ""
         val domain = prefs.getString("smb_domain", "") ?: ""
         return SmbStorageSource(SmbServer(host = host, share = share, domain = domain, user = user, password = pass))
+    }
+
+    /** Подключение к SFTP (блокирующее; из IO). */
+    fun connectSftp(host: String, port: Int, user: String, password: String, basePath: String): Boolean {
+        if (host.isBlank()) return false
+        return try {
+            val src = SftpStorageSource(SftpServer(host = host, port = port, user = user, password = password, basePath = basePath))
+            src.listDir("")
+            source = src
+            _state.update { it.copy(treeUri = null, remoteMode = true, pathStack = emptyList(), selection = emptySet(), search = "", error = null) }
+            prefs.edit()
+                .putString("sftp_host", host).putInt("sftp_port", port)
+                .putString("sftp_user", user).putString("sftp_pass", password)
+                .putString("sftp_base", basePath).apply()
+            refresh()
+            true
+        } catch (e: Exception) {
+            Log.w("MounvixSftp", "connect failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun restoreLastSftp() {
+        val host = prefs.getString("sftp_host", null) ?: return
+        if (prefs.getString("last_tree_uri", null) != null) return
+        if (prefs.getString("webdav_url", null) != null) return
+        if (prefs.getString("smb_host", null) != null) return
+        val port = prefs.getInt("sftp_port", 22)
+        val user = prefs.getString("sftp_user", "") ?: ""
+        val pass = prefs.getString("sftp_pass", "") ?: ""
+        val base = prefs.getString("sftp_base", "/") ?: "/"
+        scope.launch { connectSftp(host, port, user, pass, base) }
+    }
+
+    private fun sftpSourceFor(treeId: String): SftpStorageSource? {
+        val host = prefs.getString("sftp_host", null) ?: return null
+        val port = prefs.getInt("sftp_port", 22)
+        val base = prefs.getString("sftp_base", "/") ?: "/"
+        val expected = "sftp://$host:$port" + base.trimEnd('/')
+        if (treeId.trimEnd('/') != expected.trimEnd('/')) return null
+        val user = prefs.getString("sftp_user", "") ?: ""
+        val pass = prefs.getString("sftp_pass", "") ?: ""
+        return SftpStorageSource(SftpServer(host = host, port = port, user = user, password = pass, basePath = base))
     }
 
     fun refresh() {
@@ -414,7 +460,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         }
         val uri = src.uriOf(entry.path)
         if (uri == null) {
-            if (src is WebDavStorageSource || src is SmbStorageSource) return openRemoteFile(entry, src)
+            if (src is WebDavStorageSource || src is SmbStorageSource || src is SftpStorageSource) return openRemoteFile(entry, src)
             showToast("Не удалось получить доступ к «${entry.name}»")
             return false
         }
@@ -542,6 +588,14 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
             }
         }
         smbSourceFor(treeId)?.let { remote ->
+            return try {
+                val st = remote.stat(relPath) ?: return false
+                if (wantFolder) st.type == FileType.FOLDER else st.type == FileType.FILE
+            } catch (e: Exception) {
+                false
+            }
+        }
+        sftpSourceFor(treeId)?.let { remote ->
             return try {
                 val st = remote.stat(relPath) ?: return false
                 if (wantFolder) st.type == FileType.FOLDER else st.type == FileType.FILE
@@ -678,6 +732,27 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
                 return true
             }
             return openRemoteFile(st, smb)
+        }
+        val sftp = sftpSourceFor(treeId)
+        if (sftp != null) {
+            val st = try { sftp.stat(relPath) } catch (e: Exception) { null }
+                ?: run { showToast("Объект недоступен"); return false }
+            if (st.type == FileType.FOLDER) {
+                source = sftp
+                _state.update { s ->
+                    s.copy(
+                        treeUri = null,
+                        remoteMode = true,
+                        pathStack = relPath.split("/").filter { it.isNotBlank() },
+                        selection = emptySet(),
+                        search = "",
+                        error = null
+                    )
+                }
+                refresh()
+                return true
+            }
+            return openRemoteFile(st, sftp)
         }
         val uri = try { Uri.parse(treeId) } catch (e: Exception) { return false }
         val src = SafStorageSource(appContext, uri)

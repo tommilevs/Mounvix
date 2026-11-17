@@ -58,6 +58,13 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
     var busySmb by remember { mutableStateOf(false) }
     var updateMsg by remember { mutableStateOf<String?>(null) }
     var busyUpdt by remember { mutableStateOf(false) }
+    var sftpHost by rememberSaveable { mutableStateOf(prefs.getString("sftp_host", "192.168.160.1") ?: "") }
+    var sftpPort by rememberSaveable { mutableStateOf(prefs.getInt("sftp_port", 222).toString()) }
+    var sftpUser by rememberSaveable { mutableStateOf(prefs.getString("sftp_user", "root") ?: "") }
+    var sftpPass by rememberSaveable { mutableStateOf(prefs.getString("sftp_pass", "") ?: "") }
+    var sftpBase by rememberSaveable { mutableStateOf(prefs.getString("sftp_base", "/") ?: "/") }
+    var errSftp by remember { mutableStateOf<String?>(null) }
+    var busySftp by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Scaffold(topBar = { TopAppBar(title = { Text("Серверы") }) }) { padding ->
@@ -175,6 +182,41 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text(if (busyUpdt) "Проверка…" else "Проверить обновления") }
+            Text("Подключение к SFTP", style = MaterialTheme.typography.headlineSmall)
+            OutlinedTextField(value = sftpHost, onValueChange = { sftpHost = it }, label = { Text("SFTP хост") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = sftpPort, onValueChange = { sftpPort = it }, label = { Text("Порт") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = sftpUser, onValueChange = { sftpUser = it }, label = { Text("Логин") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = sftpPass, onValueChange = { sftpPass = it }, label = { Text("Пароль") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = sftpBase, onValueChange = { sftpBase = it }, label = { Text("Базовый путь") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            errSftp?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            Button(
+                enabled = !busySftp,
+                onClick = {
+                    busySftp = true
+                    errSftp = null
+                    val port = sftpPort.trim().toIntOrNull() ?: 22
+                    val base = sftpBase.trim().ifEmpty { "/" }
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) {
+                            viewModel.connectSftp(sftpHost.trim(), port, sftpUser.trim(), sftpPass, base)
+                        }
+                        busySftp = false
+                        if (ok) {
+                            prefs.edit()
+                                .putString("sftp_host", sftpHost.trim())
+                                .putInt("sftp_port", port)
+                                .putString("sftp_user", sftpUser.trim())
+                                .putString("sftp_pass", sftpPass)
+                                .putString("sftp_base", base)
+                                .apply()
+                            onConnected()
+                        } else {
+                            errSftp = "Не удалось подключиться к SFTP"
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (busySftp) "Подключение…" else "Подключиться к SFTP") }
             Text(
                 "Для своего сервера: http://IP:48100/dav/<корень>/; " +
                     "Keenetic native WebDAV обычно …/webdav/. Простой режим не требует установленного Mounvix.",
