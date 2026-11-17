@@ -13,7 +13,7 @@ func stringsRU() map[string]string {
 	return map[string]string{
 		"login": "Вход", "username": "Логин", "password": "Пароль", "signin": "Войти",
 		"nav_overview": "Обзор", "nav_folders": "Доступ к папкам", "nav_users": "Пользователи",
-		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_regs": "Заявки", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
+		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_regs": "Заявки", "nav_plugins": "Плагины", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
 		"overview": "Обзор", "version": "Версия", "uptime": "Аптайм", "roots": "Папки",
 		"users": "Пользователи", "sessions": "Сессии", "audit": "Аудит",
 		"folders": "Доступ к папкам", "name": "Имя", "path": "Путь", "readonly": "Только чтение",
@@ -32,7 +32,7 @@ func stringsEN() map[string]string {
 	return map[string]string{
 		"login": "Login", "username": "Username", "password": "Password", "signin": "Sign in",
 		"nav_overview": "Overview", "nav_folders": "Folders access", "nav_users": "Users",
-		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_regs": "Requests", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
+		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_regs": "Requests", "nav_plugins": "Plugins", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
 		"overview": "Overview", "version": "Version", "uptime": "Uptime", "roots": "Folders",
 		"users": "Users", "sessions": "Sessions", "audit": "Audit",
 		"folders": "Folders access", "name": "Name", "path": "Path", "readonly": "Read-only",
@@ -260,7 +260,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <title>Mounvix — {{.Title}}</title><link rel="stylesheet" href="/style.css"></head><body>
 {{if .User}}<header><b>Mounvix</b><nav>
 <a href="/">{{T "nav_overview"}}</a><a href="/folders">{{T "nav_folders"}}</a><a href="/users">{{T "nav_users"}}</a>
-<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/backup">{{T "nav_backup"}}</a><a href="/registrations">{{T "nav_regs"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
+<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/backup">{{T "nav_backup"}}</a><a href="/registrations">{{T "nav_regs"}}</a><a href="/plugins">{{T "nav_plugins"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
 <form method="post" action="/logout"><button>{{T "logout"}}</button></form>
 </nav></header>{{end}}<main>
 {{end}}
@@ -435,6 +435,24 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <form method="post" action="/registrations" style="display:inline"><input type="hidden" name="action" value="reject"><input type="hidden" name="id" value="{{.ID}}"><button>Отклонить</button></form>
 </td></tr>{{end}}</table>
 {{else}}<p class="muted">Заявок нет.</p>{{end}}
+{{template "foot.html" .}}{{end}}
+
+{{define "plugins.html"}}{{template "head.html" .}}
+<h1>Плагины</h1>
+{{if .Msg}}<p>{{.Msg}}</p>{{end}}
+{{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+<table><tr><th>Плагин</th><th>Версия</th><th>Тип</th><th>Доступен</th><th>Включён</th><th></th></tr>
+{{range .Plugins}}<tr><td>{{.Name}}<br><span class="muted">{{.Description}}</span></td><td>{{.Version}}</td><td>{{.Kind}}</td>
+<td>{{if .Available}}да{{else}}нет{{end}}</td><td>{{if .Enabled}}да{{else}}нет{{end}}</td>
+<td>{{if .Available}}<form method="post" action="/plugins"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}"><button>{{if .Enabled}}Выключить{{else}}Включить{{end}}</button></form>{{end}}</td></tr>{{end}}</table>
+<h2>rclone</h2>
+{{if .Rclone.Installed}}
+<p>Версия: {{.Rclone.Version}}</p>
+<p>Хранилища: {{range .Rclone.Remotes}}{{.}} {{else}}нет{{end}}</p>
+{{else}}
+<p class="muted">rclone не установлен. Установите: <code>opkg install rclone</code> (Entware) или <code>apt install rclone</code>.</p>
+{{end}}
+<p class="muted">Манифесты плагинов — <code>data/plugins/*.json</code>.</p>
 {{template "foot.html" .}}{{end}}
 `
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tommilevs/Mounvix/server/internal/backup"
+	"github.com/tommilevs/Mounvix/server/internal/plugins"
 	"github.com/tommilevs/Mounvix/server/internal/share"
 	"github.com/tommilevs/Mounvix/server/internal/version"
 	"golang.org/x/net/webdav"
@@ -14,16 +15,17 @@ import (
 
 // App — HTTP-приложение Mounvix (панель + WebDAV + API).
 type App struct {
-	cfg     Config
-	cfgPath string
-	store   *Store
-	mux     *http.ServeMux
-	tmpl    *template.Template
-	locks   webdav.LockSystem
-	shares  *share.Manager
-	backups *backup.Manager
-	regs    *RegStore
-	started time.Time
+	cfg       Config
+	cfgPath   string
+	store     *Store
+	mux       *http.ServeMux
+	tmpl      *template.Template
+	locks     webdav.LockSystem
+	shares    *share.Manager
+	backups   *backup.Manager
+	regs      *RegStore
+	pluginReg *plugins.Registry
+	started   time.Time
 }
 
 func New(cfg Config, cfgPath string) (*App, error) {
@@ -43,7 +45,11 @@ func New(cfg Config, cfgPath string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, regs: rg, started: time.Now(), locks: webdav.NewMemLS()}
+	pl, err := plugins.New(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, regs: rg, pluginReg: pl, started: time.Now(), locks: webdav.NewMemLS()}
 	a.tmpl = mustTemplates(a)
 	a.mux = http.NewServeMux()
 	a.routes()
@@ -58,6 +64,8 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/login", a.handleLogin)
 	a.mux.HandleFunc("/register", a.handleRegister)
 	a.mux.HandleFunc("/registrations", a.handleRegistrations)
+	a.mux.HandleFunc("/plugins", a.requireAuth(a.handlePluginsPage))
+	a.mux.HandleFunc("/api/v1/plugins", a.handlePluginsAPI)
 	a.mux.HandleFunc("/logout", a.handleLogout)
 	a.mux.HandleFunc("/", a.requireAuth(a.handleDashboard))
 	a.mux.HandleFunc("/folders", a.requireAuth(a.handleFolders))
