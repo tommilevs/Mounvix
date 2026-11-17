@@ -1,6 +1,8 @@
 package com.mounvix.app.ui
 
 import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,12 +15,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Switch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +38,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mounvix.app.BuildConfig
 import com.mounvix.app.data.net.UpdateChecker
+import com.mounvix.app.data.autoupload.AutouploadScheduler
 import com.mounvix.app.data.source.WebDavServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -69,6 +75,22 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
     var busySftp by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val transfers by viewModel.transfers.collectAsState()
+    var autoOn by rememberSaveable { mutableStateOf(prefs.getBoolean("autoupload_enabled", false)) }
+    var autoDest by rememberSaveable { mutableStateOf(prefs.getString("autoupload_dest", "Mounvix") ?: "Mounvix") }
+    var autoTreeName by rememberSaveable { mutableStateOf(prefs.getString("autoupload_tree_name", "") ?: "") }
+    var autoStatus by remember { mutableStateOf(prefs.getString("autoupload_status", "—") ?: "—") }
+    val pickAutoTree = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Exception) {
+            }
+            val nm = uri.lastPathSegment ?: "папка"
+            prefs.edit().putString("autoupload_tree", uri.toString())
+                .putString("autoupload_tree_name", nm).apply()
+            autoTreeName = nm
+        }
+    }
 
     Scaffold(topBar = { TopAppBar(title = { Text("Серверы") }) }) { padding ->
         Column(
@@ -234,6 +256,34 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
             Button(onClick = { viewModel.uploadTestFile() }, modifier = Modifier.fillMaxWidth()) {
                 Text("Тест загрузки в текущую папку")
             }
+            Text("Автозагрузка фото и видео", style = MaterialTheme.typography.headlineSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Включена")
+                Switch(
+                    checked = autoOn,
+                    onCheckedChange = { v ->
+                        autoOn = v
+                        prefs.edit().putBoolean("autoupload_enabled", v).apply()
+                        if (v) AutouploadScheduler.schedule(context) else AutouploadScheduler.cancel(context)
+                    }
+                )
+            }
+            Text(if (autoTreeName.isBlank()) "Папка не выбрана" else "Папка: $autoTreeName",
+                style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { pickAutoTree.launch(null) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Выбрать папку для автозагрузки")
+            }
+            OutlinedTextField(
+                value = autoDest, onValueChange = { autoDest = it },
+                label = { Text("Папка назначения на сервере") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(onClick = {
+                prefs.edit().putString("autoupload_dest", autoDest).apply()
+                AutouploadScheduler.runNow(context)
+                Toast.makeText(context, "Автозагрузка запущена", Toast.LENGTH_SHORT).show()
+            }, modifier = Modifier.fillMaxWidth()) { Text("Запустить автозагрузку сейчас") }
+            Text("Статус: $autoStatus", style = MaterialTheme.typography.bodySmall)
             Text(
                 "Для своего сервера: http://IP:48100/dav/<корень>/; " +
                     "Keenetic native WebDAV обычно …/webdav/. Простой режим не требует установленного Mounvix.",
