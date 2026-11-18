@@ -124,10 +124,11 @@ func (a *App) handleMediaPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	v := &mediaView{Title: "Медиа", Lang: a.cfg.Lang, User: u, Cfg: a.cfg, Version: version.Version}
+	cfg := a.configSnapshot()
+	v := &mediaView{Title: "Медиа", Lang: cfg.Lang, User: u, Cfg: cfg, Version: version.Version}
 	rootName := r.URL.Query().Get("root")
-	if rootName == "" && len(a.cfg.Roots) > 0 {
-		rootName = a.cfg.Roots[0].Name
+	if rootName == "" && len(cfg.Roots) > 0 {
+		rootName = cfg.Roots[0].Name
 	}
 	v.Root = rootName
 	v.Path = strings.TrimSpace(r.URL.Query().Get("path"))

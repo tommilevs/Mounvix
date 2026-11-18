@@ -62,10 +62,11 @@ func (a *App) handleSharesPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/shares", http.StatusSeeOther)
 		return
 	}
+	cfg := a.configSnapshot()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = a.tmpl.ExecuteTemplate(w, "shares.html", &sharesView{
-		Title: "Шары", Lang: a.cfg.Lang, Version: version.Version,
-		User: u, Cfg: a.cfg, Roots: a.cfg.Roots, Shares: a.shares.List(),
+		Title: "Шары", Lang: cfg.Lang, Version: version.Version,
+		User: u, Cfg: cfg, Roots: cfg.Roots, Shares: a.shares.List(),
 	})
 }
 

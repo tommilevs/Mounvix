@@ -31,7 +31,8 @@ func (a *App) handlePluginsPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	v := &pluginsView{Title: "Плагины", Lang: a.cfg.Lang, Version: version.Version, User: u, Cfg: a.cfg}
+	cfg := a.configSnapshot()
+	v := &pluginsView{Title: "Плагины", Lang: cfg.Lang, Version: version.Version, User: u, Cfg: cfg}
 	if r.Method == http.MethodPost {
 		_ = r.ParseForm()
 		if r.PostFormValue("action") == "rclone_sync" {

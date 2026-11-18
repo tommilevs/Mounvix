@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tommilevs/Mounvix/server/internal/backup"
@@ -18,6 +19,7 @@ import (
 
 // App — HTTP-приложение Mounvix (панель + WebDAV + API).
 type App struct {
+	cfgMu     sync.RWMutex
 	cfg       Config
 	cfgPath   string
 	store     *Store
@@ -30,6 +32,12 @@ type App struct {
 	regs      *RegStore
 	pluginReg *plugins.Registry
 	started   time.Time
+}
+
+func (a *App) configSnapshot() Config {
+	a.cfgMu.RLock()
+	defer a.cfgMu.RUnlock()
+	return a.cfg
 }
 
 func New(cfg Config, cfgPath string) (*App, error) {
@@ -84,8 +92,9 @@ func (a *App) runFeedScheduler(ctx context.Context) {
 }
 
 func (a *App) runFeedSchedulerOnce(ctx context.Context, now time.Time) error {
-	roots := make([]feeds.Root, 0, len(a.cfg.Roots))
-	for _, root := range a.cfg.Roots {
+	cfg := a.configSnapshot()
+	roots := make([]feeds.Root, 0, len(cfg.Roots))
+	for _, root := range cfg.Roots {
 		roots = append(roots, feeds.Root{Name: root.Name, Path: root.Path})
 	}
 	return a.feeds.RunDue(ctx, now, roots)
@@ -101,6 +110,9 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/registrations", a.handleRegistrations)
 	a.mux.HandleFunc("/plugins", a.requireAuth(a.handlePluginsPage))
 	a.mux.HandleFunc("/api/v1/plugins", a.handlePluginsAPI)
+	a.mux.HandleFunc("/api/v1/session", a.handleAPISession)
+	a.mux.HandleFunc("/api/v1/feeds", a.handleFeedsAPI)
+	a.mux.HandleFunc("/api/v1/feeds/", a.handleFeedReadAPI)
 	a.mux.HandleFunc("/ai", a.requireAuth(a.handleAIPage))
 	a.mux.HandleFunc("/api/v1/ai/status", a.handleAIStatusAPI)
 	a.mux.HandleFunc("/api/v1/ai/describe", a.handleAIDescribeAPI)
@@ -142,7 +154,8 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func (a *App) findRoot(name string) (Root, bool) {
-	for _, rt := range a.cfg.Roots {
+	cfg := a.configSnapshot()
+	for _, rt := range cfg.Roots {
 		if rt.Name == name {
 			return rt, true
 		}

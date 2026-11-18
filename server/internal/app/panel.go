@@ -114,13 +114,14 @@ func humanUptime(d time.Duration) string {
 
 func (a *App) viewFor(r *http.Request) *view {
 	u, _ := a.cookieUser(r)
+	cfg := a.configSnapshot()
 	return &view{
 		User:    u,
-		Cfg:     a.cfg,
+		Cfg:     cfg,
 		CfgPath: a.cfgPath,
 		Version: version.Version,
 		Uptime:  humanUptime(time.Since(a.started)),
-		Lang:    a.cfg.Lang,
+		Lang:    cfg.Lang,
 	}
 }
 
@@ -143,7 +144,8 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	v := a.viewFor(r)
 	v.Title = a.T("overview")
-	v.RootsCount = len(a.cfg.Roots)
+	cfg := a.configSnapshot()
+	v.RootsCount = len(cfg.Roots)
 	v.UsersCount = len(a.store.Users())
 	v.Sessions = a.store.SessionCount()
 	v.AuditCount = a.store.AuditCount()
@@ -154,7 +156,8 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleFolders(w http.ResponseWriter, r *http.Request) {
 	v := a.viewFor(r)
 	v.Title = a.T("folders")
-	for _, rt := range a.cfg.Roots {
+	cfg := a.configSnapshot()
+	for _, rt := range cfg.Roots {
 		perm := a.userPerm(v.User, rt.Name)
 		if perm == "" && !v.User.IsAdmin() {
 			continue
@@ -223,9 +226,12 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 		switch r.PostFormValue("action") {
 		case "lang":
 			if lang := r.PostFormValue("lang"); lang == "ru" || lang == "en" {
+				a.cfgMu.Lock()
 				a.cfg.Lang = lang
-				if err := SaveConfig(a.cfgPath, a.cfg); err != nil {
-					a.store.Audit("admin", "settings_save_failed", err.Error())
+				saveErr := SaveConfig(a.cfgPath, a.cfg)
+				a.cfgMu.Unlock()
+				if saveErr != nil {
+					a.store.Audit("admin", "settings_save_failed", saveErr.Error())
 				}
 				if u, ok := a.cookieUser(r); ok {
 					a.store.Audit(u.Name, "settings_lang", lang)
@@ -237,19 +243,25 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "admin required", http.StatusForbidden)
 				return
 			}
-			cfg, err := parseFeedConfig(r, a.cfg.Feeds, a.cfg.Roots)
+			current := a.configSnapshot()
+			cfg, err := parseFeedConfig(r, current.Feeds, current.Roots)
 			if err != nil {
 				http.Error(w, "invalid memories feed settings: "+err.Error(), http.StatusBadRequest)
 				return
 			}
+			a.cfgMu.Lock()
 			next := a.cfg
 			next.Feeds = cfg
-			if err := SaveConfig(a.cfgPath, next); err != nil {
-				a.store.Audit(u.Name, "feed_settings_save_failed", err.Error())
+			saveErr := SaveConfig(a.cfgPath, next)
+			if saveErr == nil {
+				a.cfg.Feeds = cfg
+			}
+			a.cfgMu.Unlock()
+			if saveErr != nil {
+				a.store.Audit(u.Name, "feed_settings_save_failed", saveErr.Error())
 				http.Error(w, "could not save settings", http.StatusInternalServerError)
 				return
 			}
-			a.cfg.Feeds = cfg
 			a.feeds.SetConfig(cfg)
 			a.store.Audit(u.Name, "feed_settings", "updated")
 		}
@@ -271,7 +283,8 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleStats(w http.ResponseWriter, r *http.Request) {
 	v := a.viewFor(r)
 	v.Title = a.T("stats")
-	v.RootsCount = len(a.cfg.Roots)
+	cfg := a.configSnapshot()
+	v.RootsCount = len(cfg.Roots)
 	v.UsersCount = len(a.store.Users())
 	v.Sessions = a.store.SessionCount()
 	v.AuditCount = a.store.AuditCount()

@@ -55,13 +55,13 @@ func (a *App) renderLogin(w http.ResponseWriter, errMsg string, status int) {
 	_ = a.tmpl.ExecuteTemplate(w, "login.html", map[string]any{
 		"T":    a.T,
 		"Err":  errMsg,
-		"Lang": a.cfg.Lang,
+		"Lang": a.configSnapshot().Lang,
 	})
 }
 
 func (a *App) T(key string) string {
 	m := stringsRU()
-	if a.cfg.Lang == "en" {
+	if a.configSnapshot().Lang == "en" {
 		m = stringsEN()
 	}
 	if v, ok := m[key]; ok {

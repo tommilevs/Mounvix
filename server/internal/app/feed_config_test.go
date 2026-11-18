@@ -206,7 +206,9 @@ func TestFeedSchedulerRespectsSlotsAndQuietHours(t *testing.T) {
 	cfg.Times = []string{now.Format("15:04")}
 	cfg.QuietHoursStart = now.Add(-time.Minute).Format("15:04")
 	cfg.QuietHoursEnd = now.Add(time.Minute).Format("15:04")
+	a.cfgMu.Lock()
 	a.cfg.Feeds = cfg
+	a.cfgMu.Unlock()
 	a.feeds.SetConfig(cfg)
 
 	photo := filepath.Join(sharePath, "memory.jpg")
@@ -225,10 +227,13 @@ func TestFeedSchedulerRespectsSlotsAndQuietHours(t *testing.T) {
 	}
 
 	cfg.QuietHoursStart, cfg.QuietHoursEnd = "", ""
+	a.cfgMu.Lock()
 	a.cfg.Feeds = cfg
+	a.cfgMu.Unlock()
 	a.feeds.SetConfig(cfg)
 	for i := 0; i < 2; i++ {
-		if err := a.runFeedSchedulerOnce(context.Background(), now); err != nil {
+		runAt := now.Add(time.Duration(i) * 30 * time.Second)
+		if err := a.runFeedSchedulerOnce(context.Background(), runAt); err != nil {
 			t.Fatalf("RunDue %d: %v", i+1, err)
 		}
 	}

@@ -26,7 +26,8 @@ type aiView struct {
 }
 
 func (a *App) aiClient() *ai.Client {
-	return &ai.Client{BaseURL: a.cfg.AIBaseURL, Model: a.cfg.AIModel, Key: a.cfg.AIKey}
+	cfg := a.configSnapshot()
+	return &ai.Client{BaseURL: cfg.AIBaseURL, Model: cfg.AIModel, Key: cfg.AIKey}
 }
 
 // describeImage читает файл из корня и просит модель описать изображение.
@@ -67,21 +68,26 @@ func (a *App) handleAIPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	v := &aiView{Title: "AI", Lang: a.cfg.Lang, Version: version.Version, User: u, Cfg: a.cfg}
+	cfg := a.configSnapshot()
+	v := &aiView{Title: "AI", Lang: cfg.Lang, Version: version.Version, User: u, Cfg: cfg}
 	if r.Method == http.MethodPost {
 		_ = r.ParseForm()
 		switch r.PostFormValue("action") {
 		case "save":
+			a.cfgMu.Lock()
 			a.cfg.AIBaseURL = strings.TrimSpace(r.PostFormValue("base_url"))
 			a.cfg.AIModel = strings.TrimSpace(r.PostFormValue("model"))
 			a.cfg.AIKey = r.PostFormValue("key")
-			if err := SaveConfig(a.cfgPath, a.cfg); err != nil {
-				v.Err = err.Error()
+			savedCfg := a.cfg
+			saveErr := SaveConfig(a.cfgPath, savedCfg)
+			a.cfgMu.Unlock()
+			if saveErr != nil {
+				v.Err = saveErr.Error()
 			} else {
 				v.Msg = "Настройки AI сохранены"
-				a.store.Audit(u.Name, "ai_config", a.cfg.AIBaseURL+" "+a.cfg.AIModel)
+				a.store.Audit(u.Name, "ai_config", savedCfg.AIBaseURL+" "+savedCfg.AIModel)
 			}
-			v.Cfg = a.cfg
+			v.Cfg = a.configSnapshot()
 		case "describe":
 			text, err := a.describeImage(r.Context(),
 				r.PostFormValue("root"), r.PostFormValue("path"), r.PostFormValue("prompt"))
@@ -103,10 +109,11 @@ func (a *App) handleAIStatusAPI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	cfg := a.configSnapshot()
 	writeJSON(w, map[string]any{
-		"configured": a.cfg.AIBaseURL != "" && a.cfg.AIModel != "",
-		"base_url":   a.cfg.AIBaseURL,
-		"model":      a.cfg.AIModel,
+		"configured": cfg.AIBaseURL != "" && cfg.AIModel != "",
+		"base_url":   cfg.AIBaseURL,
+		"model":      cfg.AIModel,
 	})
 }
 

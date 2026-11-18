@@ -87,10 +87,11 @@ func (a *App) handleBackupPage(w http.ResponseWriter, r *http.Request) {
 			reports[j.ID] = rep
 		}
 	}
+	cfg := a.configSnapshot()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = a.tmpl.ExecuteTemplate(w, "backup.html", &backupView{
-		Title: "Бэкап", Lang: a.cfg.Lang, Version: version.Version,
-		User: u, Cfg: a.cfg, Jobs: a.backups.List(), Reports: reports,
+		Title: "Бэкап", Lang: cfg.Lang, Version: version.Version,
+		User: u, Cfg: cfg, Jobs: a.backups.List(), Reports: reports,
 	})
 }
 

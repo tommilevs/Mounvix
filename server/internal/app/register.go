@@ -136,7 +136,7 @@ type registerView struct {
 }
 
 func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
-	v := &registerView{Title: "Регистрация", Lang: a.cfg.Lang, Version: versionOf()}
+	v := &registerView{Title: "Регистрация", Lang: a.configSnapshot().Lang, Version: versionOf()}
 	if r.Method == http.MethodPost {
 		_ = r.ParseForm()
 		name := strings.TrimSpace(r.PostFormValue("username"))
@@ -173,7 +173,7 @@ func (a *App) handleRegistrations(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	v := &regsView{Title: "Заявки", Lang: a.cfg.Lang, Version: versionOf(), User: u}
+	v := &regsView{Title: "Заявки", Lang: a.configSnapshot().Lang, Version: versionOf(), User: u}
 	if r.Method == http.MethodPost {
 		_ = r.ParseForm()
 		id := r.PostFormValue("id")
