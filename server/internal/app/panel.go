@@ -13,7 +13,7 @@ func stringsRU() map[string]string {
 	return map[string]string{
 		"login": "Вход", "username": "Логин", "password": "Пароль", "signin": "Войти",
 		"nav_overview": "Обзор", "nav_folders": "Доступ к папкам", "nav_users": "Пользователи",
-		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_regs": "Заявки", "nav_plugins": "Плагины", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
+		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_regs": "Заявки", "nav_plugins": "Плагины", "nav_ai": "AI", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
 		"overview": "Обзор", "version": "Версия", "uptime": "Аптайм", "roots": "Папки",
 		"users": "Пользователи", "sessions": "Сессии", "audit": "Аудит",
 		"folders": "Доступ к папкам", "name": "Имя", "path": "Путь", "readonly": "Только чтение",
@@ -32,7 +32,7 @@ func stringsEN() map[string]string {
 	return map[string]string{
 		"login": "Login", "username": "Username", "password": "Password", "signin": "Sign in",
 		"nav_overview": "Overview", "nav_folders": "Folders access", "nav_users": "Users",
-		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_regs": "Requests", "nav_plugins": "Plugins", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
+		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_regs": "Requests", "nav_plugins": "Plugins", "nav_ai": "AI", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
 		"overview": "Overview", "version": "Version", "uptime": "Uptime", "roots": "Folders",
 		"users": "Users", "sessions": "Sessions", "audit": "Audit",
 		"folders": "Folders access", "name": "Name", "path": "Path", "readonly": "Read-only",
@@ -260,7 +260,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <title>Mounvix — {{.Title}}</title><link rel="stylesheet" href="/style.css"></head><body>
 {{if .User}}<header><b>Mounvix</b><nav>
 <a href="/">{{T "nav_overview"}}</a><a href="/folders">{{T "nav_folders"}}</a><a href="/users">{{T "nav_users"}}</a>
-<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/backup">{{T "nav_backup"}}</a><a href="/registrations">{{T "nav_regs"}}</a><a href="/plugins">{{T "nav_plugins"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
+<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/backup">{{T "nav_backup"}}</a><a href="/registrations">{{T "nav_regs"}}</a><a href="/plugins">{{T "nav_plugins"}}</a><a href="/ai">{{T "nav_ai"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
 <form method="post" action="/logout"><button>{{T "logout"}}</button></form>
 </nav></header>{{end}}<main>
 {{end}}
@@ -454,6 +454,30 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <p class="muted">rclone не установлен. Установите: <code>opkg install rclone</code> (Entware) или <code>apt install rclone</code>.</p>
 {{end}}
 <p class="muted">Манифесты плагинов — <code>data/plugins/*.json</code>.</p>
+{{template "foot.html" .}}{{end}}
+
+{{define "ai.html"}}{{template "head.html" .}}
+<h1>AI-распознавание</h1>
+{{if .Msg}}<p>{{.Msg}}</p>{{end}}
+{{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+<h2>Бэкенд (OpenAI-совместимый)</h2>
+<form method="post" action="/ai" class="row">
+<input type="hidden" name="action" value="save">
+<input name="base_url" value="{{.Cfg.AIBaseURL}}" placeholder="http://host:8080" style="min-width:240px">
+<input name="model" value="{{.Cfg.AIModel}}" placeholder="model id" style="min-width:220px">
+<input name="key" value="{{.Cfg.AIKey}}" placeholder="API key (необяз.)" style="width:180px">
+<button>Сохранить</button>
+</form>
+<p class="muted">Ключ хранится в config.json; пусто — без авторизации.</p>
+<h2>Распознать изображение</h2>
+<form method="post" action="/ai" class="row">
+<input type="hidden" name="action" value="describe">
+<select name="root">{{range .Cfg.Roots}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select>
+<input name="path" placeholder="путь к файлу (например, test.png)" style="min-width:260px">
+<input name="prompt" placeholder="вопрос (необяз.)" style="min-width:220px">
+<button>Распознать</button>
+</form>
+{{if .Result}}<h3>Ответ</h3><pre style="white-space:pre-wrap">{{.Result}}</pre>{{end}}
 {{template "foot.html" .}}{{end}}
 `
 

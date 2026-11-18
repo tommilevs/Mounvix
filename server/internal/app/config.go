@@ -15,10 +15,13 @@ type Root struct {
 
 // Config — конфиг сервера (config.json).
 type Config struct {
-	Port    int    `json:"port"`
-	DataDir string `json:"data_dir"`
-	Lang    string `json:"lang"`
-	Roots   []Root `json:"roots"`
+	Port      int    `json:"port"`
+	DataDir   string `json:"data_dir"`
+	Lang      string `json:"lang"`
+	AIBaseURL string `json:"ai_base_url,omitempty"`
+	AIModel   string `json:"ai_model,omitempty"`
+	AIKey     string `json:"ai_key,omitempty"`
+	Roots     []Root `json:"roots"`
 }
 
 func DefaultConfig() Config {
@@ -62,13 +65,18 @@ func LoadConfig(path string) (Config, string, error) {
 	return cfg, p, nil
 }
 
+// SaveConfig записывает конфиг на диск атомарно.
 func SaveConfig(path string, cfg Config) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
