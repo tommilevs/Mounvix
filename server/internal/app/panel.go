@@ -20,7 +20,7 @@ func stringsRU() map[string]string {
 		"your_perm":   "Ваши права",
 		"create_user": "Создать пользователя", "new_password": "Новый пароль", "role": "Роль",
 		"apply": "Применить", "reset": "Сбросить пароль", "disable": "Отключить", "enable": "Включить",
-		"lang": "Язык", "save": "Сохранить", "logs": "Логи", "time": "Время", "action": "Действие",
+		"lang": "Язык", "save": "Сохранить", "settings": "Настройки", "logs": "Логи", "time": "Время", "action": "Действие",
 		"info": "Информация", "stats": "Статистика", "total_users": "Пользователей",
 		"total_roots": "Папок", "total_sessions": "Активных сессий", "audit_events": "Событий аудита",
 		"settings_note": "Корни задаются в config.json. Здесь можно сменить язык и настроить ленту «Воспоминания».",
@@ -28,6 +28,8 @@ func stringsRU() map[string]string {
 		"feeds_quiet_start": "Начало тихих часов", "feeds_quiet_end": "Конец тихих часов", "feeds_period": "Период поиска, дней", "feeds_max_items": "Медиа в карточке (макс. 8)", "feeds_retention": "Хранить карточки, дней",
 		"weekday_mon": "Пн", "weekday_tue": "Вт", "weekday_wed": "Ср", "weekday_thu": "Чт", "weekday_fri": "Пт", "weekday_sat": "Сб", "weekday_sun": "Вс",
 		"no_access": "Нет доступа", "acl": "Доступ к папкам (чтение/запись)", "create": "Создать",
+		"theme": "Тема", "theme_dark": "Тёмная", "theme_light": "Светлая", "theme_system": "Система",
+		"menu": "Меню", "nav_label": "Основная навигация", "skip_content": "Перейти к содержимому", "close_menu": "Закрыть меню",
 	}
 }
 
@@ -42,7 +44,7 @@ func stringsEN() map[string]string {
 		"your_perm":   "Your permission",
 		"create_user": "Create user", "new_password": "New password", "role": "Role",
 		"apply": "Apply", "reset": "Reset password", "disable": "Disable", "enable": "Enable",
-		"lang": "Language", "save": "Save", "logs": "Logs", "time": "Time", "action": "Action",
+		"lang": "Language", "save": "Save", "settings": "Settings", "logs": "Logs", "time": "Time", "action": "Action",
 		"info": "Info", "stats": "Stats", "total_users": "Users", "total_roots": "Folders",
 		"total_sessions": "Active sessions", "audit_events": "Audit events",
 		"settings_note": "Roots are set in config.json. Here you can change the language and configure Memories.",
@@ -50,33 +52,10 @@ func stringsEN() map[string]string {
 		"feeds_quiet_start": "Quiet hours start", "feeds_quiet_end": "Quiet hours end", "feeds_period": "Search period, days", "feeds_max_items": "Media per card (max 8)", "feeds_retention": "Keep cards, days",
 		"weekday_mon": "Mon", "weekday_tue": "Tue", "weekday_wed": "Wed", "weekday_thu": "Thu", "weekday_fri": "Fri", "weekday_sat": "Sat", "weekday_sun": "Sun",
 		"no_access": "No access", "acl": "Folder access (read/write)", "create": "Create",
+		"theme": "Theme", "theme_dark": "Dark", "theme_light": "Light", "theme_system": "System",
+		"menu": "Menu", "nav_label": "Primary navigation", "skip_content": "Skip to content", "close_menu": "Close menu",
 	}
 }
-
-const styleCSS = `body{font-family:system-ui,sans-serif;margin:0;background:#f6f7f9;color:#17202a}
-header{display:flex;gap:16px;align-items:center;padding:10px 16px;background:#10233b;color:#fff;flex-wrap:wrap}
-header nav{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-header a{color:#dbe7f5;text-decoration:none}header a:hover{color:#fff}
-main{padding:16px;max-width:1100px;margin:0 auto}
-table{border-collapse:collapse;width:100%;background:#fff}
-th,td{text-align:left;padding:6px 10px;border-bottom:1px solid #e6e9ee;font-size:14px}
-th{background:#eef1f6}
-.card{background:#fff;border:1px solid #e6e9ee;border-radius:10px;padding:12px;margin:8px 0}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:12px 0}
-.big{font-size:22px;font-weight:600}.muted{color:#68727e;font-size:13px}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
-input,select,button{font:inherit;padding:6px 8px;border:1px solid #cfd6df;border-radius:8px;background:#fff}
-button{background:#1f4e79;color:#fff;border-color:#1f4e79;cursor:pointer}button:hover{background:#2a6396}
-.login{display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1b2d}
-.login .card{width:340px}.login h1{color:#1f4e79}.err{color:#b00020}
-footer{padding:12px 16px;color:#68727e;font-size:12px}
-.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin:16px 0}
-.gallery .item{background:#fff;border:1px solid #e6e9ee;border-radius:10px;overflow:hidden;transition:transform .15s ease-out,box-shadow .15s ease-out}
-.gallery .item:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(15,27,45,.08)}
-.gallery .thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#eef1f6}
-.gallery .cap{padding:8px 10px;font-size:13px;display:flex;justify-content:space-between;gap:8px}
-.gallery .vid{display:flex;align-items:center;justify-content:center;height:100%;font-size:40px;color:#1f4e79;background:#eef1f6}
-`
 
 type permRoot struct {
 	Name     string
@@ -130,11 +109,6 @@ func (a *App) render(w http.ResponseWriter, page string, v *view) {
 	if err := a.tmpl.ExecuteTemplate(w, page, v); err != nil {
 		http.Error(w, "template error", http.StatusInternalServerError)
 	}
-}
-
-func (a *App) handleStyle(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	_, _ = w.Write([]byte(styleCSS))
 }
 
 func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -322,16 +296,38 @@ func mustTemplates(a *App) *template.Template {
 	return template.Must(t.Parse(panelHTML + loginHTML))
 }
 
-const panelHTML = `{{define "head.html"}}<!doctype html>
-<html lang="{{.Lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mounvix — {{.Title}}</title><link rel="stylesheet" href="/style.css"></head><body>
-{{if .User}}<header><b>Mounvix</b><nav>
-<a href="/">{{T "nav_overview"}}</a><a href="/folders">{{T "nav_folders"}}</a><a href="/users">{{T "nav_users"}}</a>
-<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/backup">{{T "nav_backup"}}</a><a href="/registrations">{{T "nav_regs"}}</a><a href="/plugins">{{T "nav_plugins"}}</a><a href="/ai">{{T "nav_ai"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
-<form method="post" action="/logout"><button>{{T "logout"}}</button></form>
-</nav></header>{{end}}<main>
+const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" for="theme-select">
+<span>{{T "theme"}}</span>
+<select id="theme-select" aria-label="{{T "theme"}}">
+<option value="dark" selected>{{T "theme_dark"}}</option>
+<option value="light">{{T "theme_light"}}</option>
+<option value="system">{{T "theme_system"}}</option>
+</select></label>{{end}}
+
+{{define "head.html"}}<!doctype html>
+<html lang="{{.Lang}}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mounvix — {{.Title}}</title><script src="/theme.js"></script><link rel="stylesheet" href="/style.css"></head><body class="panel-page">
+<a class="skip-link" href="#main-content">{{T "skip_content"}}</a>
+<div class="app-shell">
+{{if .User}}<aside class="sidebar" id="sidebar" data-open="false">
+<div class="sidebar-header">
+<a class="brand" href="/" aria-label="Mounvix — {{T "nav_overview"}}">Mounvix<span class="brand-subtitle">SERVER</span></a>
+<button class="sidebar-close" id="nav-close" type="button" aria-label="{{T "close_menu"}}"><span aria-hidden="true">×</span></button>
+</div>
+<nav class="primary-nav" id="primary-nav" aria-label="{{T "nav_label"}}">
+<a class="nav-link" data-nav-link href="/">{{T "nav_overview"}}</a><a class="nav-link" data-nav-link href="/folders">{{T "nav_folders"}}</a><a class="nav-link" data-nav-link href="/users">{{T "nav_users"}}</a>
+<a class="nav-link" data-nav-link href="/shares">{{T "nav_shares"}}</a><a class="nav-link" data-nav-link href="/media">{{T "nav_media"}}</a><a class="nav-link" data-nav-link href="/backup">{{T "nav_backup"}}</a><a class="nav-link" data-nav-link href="/registrations">{{T "nav_regs"}}</a><a class="nav-link" data-nav-link href="/plugins">{{T "nav_plugins"}}</a><a class="nav-link" data-nav-link href="/ai">{{T "nav_ai"}}</a><a class="nav-link" data-nav-link href="/settings">{{T "nav_settings"}}</a><a class="nav-link" data-nav-link href="/logs">{{T "nav_logs"}}</a><a class="nav-link" data-nav-link href="/stats">{{T "nav_stats"}}</a>
+</nav>
+<div class="sidebar-footer"><form method="post" action="/logout"><button>{{T "logout"}}</button></form></div>
+</aside>{{end}}
+<div class="main-shell{{if not .User}} main-shell--public{{end}}">
+<header class="topbar">
+{{if .User}}<button class="menu-toggle" id="nav-toggle" type="button" aria-controls="sidebar" aria-expanded="false"><span aria-hidden="true">☰</span><span>{{T "menu"}}</span></button><span class="mobile-brand">Mounvix</span>{{else}}<a class="mobile-brand" href="/">Mounvix</a>{{end}}
+{{template "themeControl.html" .}}
+</header>
+<main id="main-content" tabindex="-1">
 {{end}}
-{{define "foot.html"}}</main><footer>Mounvix {{.Version}}</footer></body></html>{{end}}
+{{define "foot.html"}}</main><footer class="site-footer">Mounvix {{.Version}}</footer></div></div></body></html>{{end}}
 
 {{define "dashboard.html"}}{{template "head.html" .}}
 <h1>{{T "overview"}}</h1>
@@ -343,14 +339,14 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <div class="card"><div class="muted">{{T "sessions"}}</div><div class="big">{{.Sessions}}</div></div>
 </div>
 <h2>{{T "audit"}}</h2>
-<table><tr><th>{{T "time"}}</th><th>{{T "username"}}</th><th>{{T "action"}}</th><th>{{T "info"}}</th></tr>
-{{range .Audit}}<tr><td>{{fmtTime .At}}</td><td>{{.User}}</td><td>{{.Act}}</td><td>{{.Info}}</td></tr>{{end}}</table>
+<div class="table-wrap"><table><tr><th>{{T "time"}}</th><th>{{T "username"}}</th><th>{{T "action"}}</th><th>{{T "info"}}</th></tr>
+{{range .Audit}}<tr><td>{{fmtTime .At}}</td><td>{{.User}}</td><td>{{.Act}}</td><td>{{.Info}}</td></tr>{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "folders.html"}}{{template "head.html" .}}
 <h1>{{T "folders"}}</h1>
-<table><tr><th>{{T "name"}}</th><th>{{T "path"}}</th><th>{{T "readonly"}}</th><th>{{T "your_perm"}}</th></tr>
-{{range .Roots}}<tr><td>{{.Name}}</td><td>{{.Path}}</td><td>{{if .ReadOnly}}yes{{else}}no{{end}}</td><td>{{if .Perm}}{{.Perm}}{{else}}—{{end}}</td></tr>{{end}}</table>
+<div class="table-wrap"><table><tr><th>{{T "name"}}</th><th>{{T "path"}}</th><th>{{T "readonly"}}</th><th>{{T "your_perm"}}</th></tr>
+{{range .Roots}}<tr><td>{{.Name}}</td><td>{{.Path}}</td><td>{{if .ReadOnly}}yes{{else}}no{{end}}</td><td>{{if .Perm}}{{.Perm}}{{else}}—{{end}}</td></tr>{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "users.html"}}{{template "head.html" .}}
@@ -420,15 +416,15 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 </form>
 </section>
 {{end}}
-<table><tr><th>{{T "name"}}</th><th>{{T "path"}}</th><th>{{T "readonly"}}</th></tr>
-{{range .Cfg.Roots}}<tr><td>{{.Name}}</td><td>{{.Path}}</td><td>{{if .ReadOnly}}yes{{else}}no{{end}}</td></tr>{{end}}</table>
+<div class="table-wrap"><table><tr><th>{{T "name"}}</th><th>{{T "path"}}</th><th>{{T "readonly"}}</th></tr>
+{{range .Cfg.Roots}}<tr><td>{{.Name}}</td><td>{{.Path}}</td><td>{{if .ReadOnly}}yes{{else}}no{{end}}</td></tr>{{end}}</table></div>
 <p class="muted">config: {{.CfgPath}}</p>
 {{template "foot.html" .}}{{end}}
 
 {{define "logs.html"}}{{template "head.html" .}}
 <h1>{{T "logs"}}</h1>
-<table><tr><th>{{T "time"}}</th><th>{{T "username"}}</th><th>{{T "action"}}</th><th>{{T "info"}}</th></tr>
-{{range .Audit}}<tr><td>{{fmtTime .At}}</td><td>{{.User}}</td><td>{{.Act}}</td><td>{{.Info}}</td></tr>{{end}}</table>
+<div class="table-wrap"><table><tr><th>{{T "time"}}</th><th>{{T "username"}}</th><th>{{T "action"}}</th><th>{{T "info"}}</th></tr>
+{{range .Audit}}<tr><td>{{fmtTime .At}}</td><td>{{.User}}</td><td>{{.Act}}</td><td>{{.Info}}</td></tr>{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "stats.html"}}{{template "head.html" .}}
@@ -452,11 +448,11 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <label><input type="checkbox" name="allow_upload"> загрузка</label>
 <button>Создать ссылку</button>
 </form>
-<table><tr><th>Ссылка</th><th>Путь</th><th>Истекает</th><th>Пароль</th><th></th></tr>
+<div class="table-wrap"><table><tr><th>Ссылка</th><th>Путь</th><th>Истекает</th><th>Пароль</th><th></th></tr>
 {{range .Shares}}<tr><td><a href="/s/{{.Token}}" target="_blank">/s/{{.Token}}</a></td>
 <td>{{.Root}}/{{.Path}}</td><td>{{fmtTime .ExpiresAt}}</td><td>{{if .PasswordHash}}да{{else}}нет{{end}}</td>
 <td><form method="post" action="/shares"><input type="hidden" name="action" value="revoke"><input type="hidden" name="token" value="{{.Token}}"><button>Отозвать</button></form></td></tr>
-{{end}}</table>
+{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "media.html"}}{{template "head.html" .}}
@@ -492,7 +488,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <input name="interval_hours" placeholder="интервал, ч (0=вручную)" style="width:180px">
 <button>Создать задание</button>
 </form>
-<table><tr><th>Задание</th><th>Источник</th><th>Цели</th><th>Расписание</th><th>Последний запуск</th><th></th></tr>
+<div class="table-wrap"><table><tr><th>Задание</th><th>Источник</th><th>Цели</th><th>Расписание</th><th>Последний запуск</th><th></th></tr>
 {{range .Jobs}}<tr>
 <td>{{.Name}}</td><td class="muted">{{.Source}}</td>
 <td>{{range .Targets}}{{.Type}}: {{if eq .Type "local"}}{{.Path}}{{else}}{{.URL}}{{end}}<br>{{end}}</td>
@@ -503,7 +499,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="run"><input type="hidden" name="id" value="{{.ID}}"><button>Запустить</button></form>
 <form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{.ID}}"><button>Удалить</button></form>
 <form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="restore"><input type="hidden" name="id" value="{{.ID}}"><input name="dest" placeholder="куда восстановить" style="width:150px"><button>Восстановить</button></form>
-</td></tr>{{end}}</table>
+</td></tr>{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "register.html"}}{{template "head.html" .}}
@@ -522,11 +518,11 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <h1>Заявки на регистрацию</h1>
 {{if .Msg}}<p>{{.Msg}}</p>{{end}}
 {{if .Pending}}
-<table><tr><th>Логин</th><th>Создана</th><th></th></tr>
+<div class="table-wrap"><table><tr><th>Логин</th><th>Создана</th><th></th></tr>
 {{range .Pending}}<tr><td>{{.Name}}</td><td>{{fmtTime .CreatedAt}}</td><td>
 <form method="post" action="/registrations" style="display:inline"><input type="hidden" name="action" value="approve"><input type="hidden" name="id" value="{{.ID}}"><button>Принять</button></form>
 <form method="post" action="/registrations" style="display:inline"><input type="hidden" name="action" value="reject"><input type="hidden" name="id" value="{{.ID}}"><button>Отклонить</button></form>
-</td></tr>{{end}}</table>
+</td></tr>{{end}}</table></div>
 {{else}}<p class="muted">Заявок нет.</p>{{end}}
 {{template "foot.html" .}}{{end}}
 
@@ -534,10 +530,10 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <h1>Плагины</h1>
 {{if .Msg}}<p>{{.Msg}}</p>{{end}}
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
-<table><tr><th>Плагин</th><th>Версия</th><th>Тип</th><th>Доступен</th><th>Включён</th><th></th></tr>
+<div class="table-wrap"><table><tr><th>Плагин</th><th>Версия</th><th>Тип</th><th>Доступен</th><th>Включён</th><th></th></tr>
 {{range .Plugins}}<tr><td>{{.Name}}<br><span class="muted">{{.Description}}</span></td><td>{{.Version}}</td><td>{{.Kind}}</td>
 <td>{{if .Available}}да{{else}}нет{{end}}</td><td>{{if .Enabled}}да{{else}}нет{{end}}</td>
-<td>{{if .Available}}<form method="post" action="/plugins"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}"><button>{{if .Enabled}}Выключить{{else}}Включить{{end}}</button></form>{{end}}</td></tr>{{end}}</table>
+<td>{{if .Available}}<form method="post" action="/plugins"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}"><button>{{if .Enabled}}Выключить{{else}}Включить{{end}}</button></form>{{end}}</td></tr>{{end}}</table></div>
 <h2>rclone</h2>
 {{if .Rclone.Installed}}
 <p>Версия: {{.Rclone.Version}}</p>
@@ -575,10 +571,12 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 `
 
 const loginHTML = `{{define "login.html"}}<!doctype html>
-<html lang="{{.Lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mounvix — {{T "login"}}</title><link rel="stylesheet" href="/style.css"></head>
-<body class="login"><div class="card">
-<h1>Mounvix</h1>
+<html lang="{{.Lang}}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mounvix — {{T "login"}}</title><script src="/theme.js"></script><link rel="stylesheet" href="/style.css"></head>
+<body class="auth-page"><a class="skip-link" href="#main-content">{{T "skip_content"}}</a>
+<header class="auth-toolbar"><a class="brand" href="/">Mounvix</a>{{template "themeControl.html" .}}</header>
+<main class="auth-main" id="main-content" tabindex="-1"><section class="auth-card" aria-labelledby="auth-title">
+<h1 id="auth-title">Mounvix</h1>
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
 <p><a href="/register">Регистрация</a></p>
 <form method="post" action="/login">
@@ -587,4 +585,4 @@ const loginHTML = `{{define "login.html"}}<!doctype html>
 <button>{{T "signin"}}</button>
 </form>
 <p class="muted">Mounvix server</p>
-</div></body></html>{{end}}`
+</section></main></body></html>{{end}}`

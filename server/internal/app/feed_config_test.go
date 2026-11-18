@@ -268,7 +268,7 @@ func TestSettingsFeedControlsLocalizeForRussianAndEnglish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Воспоминания") || !strings.Contains(string(body), "Корни для сканирования") {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Воспоминания") || !strings.Contains(string(body), "Корни для сканирования") || !strings.Contains(string(body), "<title>Mounvix — Настройки</title>") || !strings.Contains(string(body), "<h1>Настройки</h1>") {
 		t.Fatalf("Russian feed settings missing: status=%d", resp.StatusCode)
 	}
 
@@ -286,7 +286,7 @@ func TestSettingsFeedControlsLocalizeForRussianAndEnglish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Memories") || !strings.Contains(string(body), "Roots to scan") {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Memories") || !strings.Contains(string(body), "Roots to scan") || !strings.Contains(string(body), "<title>Mounvix — Settings</title>") || !strings.Contains(string(body), "<h1>Settings</h1>") {
 		t.Fatalf("English feed settings missing: status=%d", resp.StatusCode)
 	}
 }

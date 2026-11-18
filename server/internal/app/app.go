@@ -105,6 +105,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.mux.ServeHTT
 func (a *App) routes() {
 	a.mux.HandleFunc("/health", a.handleHealth)
 	a.mux.HandleFunc("/style.css", a.handleStyle)
+	a.mux.HandleFunc("/theme.js", a.handleThemeScript)
 	a.mux.HandleFunc("/login", a.handleLogin)
 	a.mux.HandleFunc("/register", a.handleRegister)
 	a.mux.HandleFunc("/registrations", a.handleRegistrations)
