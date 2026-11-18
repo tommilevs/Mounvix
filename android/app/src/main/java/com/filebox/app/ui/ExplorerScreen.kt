@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -86,6 +87,7 @@ private sealed class ExplorerDialog {
 fun ExplorerScreen(viewModel: MounvixViewModel, onOpenGallery: () -> Unit = {}) {
     val context = LocalContext.current
     val state by viewModel.state.collectAsState()
+    val aiState by viewModel.aiState.collectAsState()
     var dialog by remember { mutableStateOf<ExplorerDialog?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
     var searchField by remember { mutableStateOf("") }
@@ -114,6 +116,7 @@ fun ExplorerScreen(viewModel: MounvixViewModel, onOpenGallery: () -> Unit = {}) 
         viewModel.setSearch("")
     }
 
+    aiState?.let { st -> AiResultDialog(st) { viewModel.clearAiState() } }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -347,6 +350,13 @@ private fun SelectionBar(viewModel: MounvixViewModel, state: ExplorerState, onDi
         if (single) {
             val sel = state.entries.firstOrNull { it.path in state.selection }
             if (sel != null && sel.type == FileType.FILE) {
+                val isImage = listOf("jpg", "jpeg", "png", "gif", "webp", "bmp")
+                    .contains(sel.path.substringAfterLast('.', "").lowercase())
+                if (isImage) {
+                    IconButton(onClick = { viewModel.describeSelectedImage() }) {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = "Распознать (AI)")
+                    }
+                }
                 if (state.remoteMode) {
                     IconButton(onClick = { viewModel.saveSelectedToDownloads() }) {
                         Icon(Icons.Filled.Download, contentDescription = "Скачать в Загрузки")
@@ -559,5 +569,20 @@ private fun RenameDialog(entry: FileEntry, onDismiss: () -> Unit, onRename: (Str
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
+}
+@Composable
+private fun AiResultDialog(state: AiState, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text(if (state is AiState.Done) "AI: " + state.name else "AI") },
+        text = {
+            when (state) {
+                is AiState.Loading -> Text("Распознавание…")
+                is AiState.Done -> Text(state.text)
+                is AiState.Error -> Text(state.message)
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("OK") } }
     )
 }

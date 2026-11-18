@@ -12,6 +12,7 @@ import com.mounvix.app.data.db.AppDatabase
 import com.mounvix.app.data.db.Favorite
 import com.mounvix.app.data.db.Recent
 import com.mounvix.app.data.model.FileEntry
+import com.mounvix.app.data.ai.AiRecognizer
 import com.mounvix.app.data.model.FileNameRules
 import com.mounvix.app.data.model.FileType
 import com.mounvix.app.data.repository.FavoriteRepository
@@ -80,6 +81,8 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
     private val _recentsUi = MutableStateFlow(RecentsUi())
     private val _galleryUi = MutableStateFlow(GalleryUi())
     private val _transfers = MutableStateFlow<List<TransferItem>>(emptyList())
+    private val _aiState = MutableStateFlow<AiState?>(null)
+    val aiState: StateFlow<AiState?> = _aiState.asStateFlow()
     val transfers: StateFlow<List<TransferItem>> = _transfers.asStateFlow()
     val galleryUi: StateFlow<GalleryUi> = _galleryUi.asStateFlow()
     val recentsUi: StateFlow<RecentsUi> = _recentsUi.asStateFlow()
@@ -936,6 +939,40 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
             tmp.delete()
             if (ok) refresh()
             withContext(Dispatchers.Main) { showToast(if (ok) "Загружено: " + name else "Ошибка загрузки") }
+        }
+        return true
+    }
+    // ---------- AI ----------
+
+    fun clearAiState() {
+        _aiState.value = null
+    }
+
+    /** Распознать выбранное изображение через настроенный vision-бэкенд. */
+    fun describeSelectedImage(): Boolean {
+        val st = _state.value
+        val path = st.selection.firstOrNull() ?: return false
+        val entry = st.entries.firstOrNull { it.path == path } ?: return false
+        if (entry.type != FileType.FILE) return false
+        val src = source ?: return false
+        val base = prefs.getString("ai_base", "") ?: ""
+        val model = prefs.getString("ai_model", "") ?: ""
+        if (base.isBlank() || model.isBlank()) {
+            showToast("Настройте AI в «Серверы»")
+            return false
+        }
+        scope.launch {
+            _aiState.value = AiState.Loading(entry.name)
+            try {
+                val f = cacheMediaFile(entry.path, src) ?: throw IllegalStateException("не удалось прочитать файл")
+                val text = AiRecognizer().describe(
+                    base, model, prefs.getString("ai_key", "") ?: "",
+                    f.readBytes(), src.mimeTypeOf(entry.path) ?: "image/jpeg", ""
+                )
+                _aiState.value = AiState.Done(entry.name, text)
+            } catch (e: Exception) {
+                _aiState.value = AiState.Error(e.message ?: "Ошибка AI")
+            }
         }
         return true
     }

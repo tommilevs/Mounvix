@@ -62,3 +62,8 @@ data class TransferItem(
     val done: Long,
     val state: String
 )
+sealed class AiState {
+    data class Loading(val name: String) : AiState()
+    data class Done(val name: String, val text: String) : AiState()
+    data class Error(val message: String) : AiState()
+}

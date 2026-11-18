@@ -79,6 +79,9 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
     var autoDest by rememberSaveable { mutableStateOf(prefs.getString("autoupload_dest", "Mounvix") ?: "Mounvix") }
     var autoTreeName by rememberSaveable { mutableStateOf(prefs.getString("autoupload_tree_name", "") ?: "") }
     var autoStatus by remember { mutableStateOf(prefs.getString("autoupload_status", "—") ?: "—") }
+    var aiBase by rememberSaveable { mutableStateOf(prefs.getString("ai_base", "") ?: "") }
+    var aiModel by rememberSaveable { mutableStateOf(prefs.getString("ai_model", "") ?: "") }
+    var aiKey by rememberSaveable { mutableStateOf(prefs.getString("ai_key", "") ?: "") }
     val pickAutoTree = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             try {
@@ -284,6 +287,29 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
                 Toast.makeText(context, "Автозагрузка запущена", Toast.LENGTH_SHORT).show()
             }, modifier = Modifier.fillMaxWidth()) { Text("Запустить автозагрузку сейчас") }
             Text("Статус: $autoStatus", style = MaterialTheme.typography.bodySmall)
+            Text("AI-распознавание", style = MaterialTheme.typography.headlineSmall)
+            OutlinedTextField(
+                value = aiBase, onValueChange = { aiBase = it },
+                label = { Text("Base URL (OpenAI-совместимый)") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = aiModel, onValueChange = { aiModel = it },
+                label = { Text("Модель") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = aiKey, onValueChange = { aiKey = it },
+                label = { Text("API key (необяз.)") }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(onClick = {
+                prefs.edit().putString("ai_base", aiBase.trim())
+                    .putString("ai_model", aiModel.trim())
+                    .putString("ai_key", aiKey).apply()
+                Toast.makeText(context, "AI сохранён", Toast.LENGTH_SHORT).show()
+            }, modifier = Modifier.fillMaxWidth()) { Text("Сохранить AI") }
             Text(
                 "Для своего сервера: http://IP:48100/dav/<корень>/; " +
                     "Keenetic native WebDAV обычно …/webdav/. Простой режим не требует установленного Mounvix.",
