@@ -69,6 +69,7 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/ai", a.requireAuth(a.handleAIPage))
 	a.mux.HandleFunc("/api/v1/ai/status", a.handleAIStatusAPI)
 	a.mux.HandleFunc("/api/v1/ai/describe", a.handleAIDescribeAPI)
+	a.mux.HandleFunc("/feed/", a.handleFeed)
 	a.mux.HandleFunc("/logout", a.handleLogout)
 	a.mux.HandleFunc("/", a.requireAuth(a.handleDashboard))
 	a.mux.HandleFunc("/folders", a.requireAuth(a.handleFolders))
