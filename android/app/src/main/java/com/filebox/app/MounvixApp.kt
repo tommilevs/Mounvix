@@ -18,5 +18,10 @@ class MounvixApp : Application() {
         if (prefs.getBoolean("autoupload_enabled", false)) {
             AutouploadScheduler.schedule(this)
         }
+        if (prefs.getBoolean(com.mounvix.app.data.feed.FeedWorker.NOTIFICATIONS_ENABLED, false) &&
+            com.mounvix.app.data.feed.FeedRepository.from(this).loadProfile() != null
+        ) {
+            com.mounvix.app.data.feed.FeedScheduler.schedule(this)
+        }
     }
 }

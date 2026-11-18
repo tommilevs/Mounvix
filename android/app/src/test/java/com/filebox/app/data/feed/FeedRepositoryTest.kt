@@ -55,6 +55,15 @@ class FeedRepositoryTest {
     }
 
     @Test
+    fun initializeCursorIfAbsentKeepsFirstBaselineAcrossRetries() {
+        repository.initializeCursorIfAbsent("2026-11-18T09:00:00Z")
+
+        repository.initializeCursorIfAbsent("2026-11-18T10:00:00Z")
+
+        assertEquals("2026-11-18T09:00:00Z", preferences.getString("feed_cursor", null))
+    }
+
+    @Test
     fun switchingProfileResetsCursor() {
         repository.commitCursor("2026-11-01T00:00:00Z")
 

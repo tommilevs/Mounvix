@@ -44,6 +44,16 @@ class FeedRepository(
         return api.getFeeds(preferences.getString(KEY_CURSOR, null), PAGE_LIMIT)
     }
 
+    /** Set the initial notification baseline once, so old retained cards are not announced. */
+    fun initializeCursorIfAbsent(baseline: String) {
+        require(baseline.isNotBlank()) { "initial cursor must not be blank" }
+        if (preferences.getString(KEY_CURSOR, null).isNullOrBlank()) {
+            check(preferences.edit().putString(KEY_CURSOR, baseline).commit()) {
+                "could not initialize memories feed cursor"
+            }
+        }
+    }
+
     /** Commit the cursor only after the caller has completed notification side effects. */
     fun commitCursor(nextSince: String) {
         require(nextSince.isNotBlank()) { "sync cursor must not be blank" }
