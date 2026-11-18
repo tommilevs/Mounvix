@@ -350,6 +350,8 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
             )
             Text("Доступы: Mounvix по умолчанию admin / 1234567890 (смените в панели сервера).",
                 style = MaterialTheme.typography.bodySmall)
+
+            FeedProfileSection()
         }
     }
 }
