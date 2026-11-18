@@ -37,8 +37,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.mounvix.app.BuildConfig
-import com.mounvix.app.data.net.UpdateChecker
 import com.mounvix.app.data.autoupload.AutouploadScheduler
+import com.mounvix.app.data.net.UpdateChecker
+import com.mounvix.app.data.update.ApkDownloader
+import com.mounvix.app.data.update.ApkInstaller
+import java.io.File
 import com.mounvix.app.data.source.WebDavServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -66,6 +69,7 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
     var busySmb by remember { mutableStateOf(false) }
     var updateMsg by remember { mutableStateOf<String?>(null) }
     var busyUpdt by remember { mutableStateOf(false) }
+    var updateApk by remember { mutableStateOf<String?>(null) }
     var sftpHost by rememberSaveable { mutableStateOf(prefs.getString("sftp_host", "192.168.160.1") ?: "") }
     var sftpPort by rememberSaveable { mutableStateOf(prefs.getInt("sftp_port", 222).toString()) }
     var sftpUser by rememberSaveable { mutableStateOf(prefs.getString("sftp_user", "root") ?: "") }
@@ -201,15 +205,44 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
                         busyUpdt = false
                         updateMsg = res.fold(
                             { u ->
-                                if (u.available) "Доступна версия " + u.tag + ": " + u.url
-                                else "У вас последняя версия (" + BuildConfig.VERSION_NAME + ")"
+                                if (u.available) {
+                                    updateApk = u.apkUrl.takeIf { it.isNotBlank() }
+                                    "Доступна версия " + u.tag + ": " + u.url
+                                } else {
+                                    updateApk = null
+                                    "У вас последняя версия (" + BuildConfig.VERSION_NAME + ")"
+                                }
                             },
-                            { e -> "Ошибка проверки: " + e.message }
+                            { e ->
+                                updateApk = null
+                                "Ошибка проверки: " + e.message
+                            }
                         )
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text(if (busyUpdt) "Проверка…" else "Проверить обновления") }
+            if (updateApk != null) {
+                Button(
+                    onClick = {
+                        val url = updateApk ?: return@Button
+                        scope.launch {
+                            val ok = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    val f = ApkDownloader().download(url, File(context.cacheDir, "mounvix-update.apk"))
+                                    ApkInstaller().install(context, f)
+                                }.getOrDefault(false)
+                            }
+                            Toast.makeText(
+                                context,
+                                if (ok) "Запуск установки…" else "Не удалось скачать обновление",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Скачать и установить обновление") }
+            }
             Text("Подключение к SFTP", style = MaterialTheme.typography.headlineSmall)
             OutlinedTextField(value = sftpHost, onValueChange = { sftpHost = it }, label = { Text("SFTP хост") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = sftpPort, onValueChange = { sftpPort = it }, label = { Text("Порт") }, singleLine = true, modifier = Modifier.fillMaxWidth())

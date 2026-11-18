@@ -8,6 +8,7 @@ data class UpdateInfo(
     val available: Boolean,
     val tag: String,
     val url: String,
+    val apkUrl: String = "",
 )
 
 /** Проверка обновлений через GitHub Releases API (без токена, User-Agent обязателен). */
@@ -29,10 +30,13 @@ class UpdateChecker(
             val tag = regexValue(text, "tag_name")
             val url = regexValue(text, "html_url")
             val latest = tag.trimStart('v', 'V')
+            val apkUrl = Regex("\"browser_download_url\"\\s*:\\s*\"([^\"]*\\.apk)\"")
+                .find(text)?.groupValues?.get(1) ?: ""
             return UpdateInfo(
                 available = compareVersions(latest, currentVersion) > 0,
                 tag = tag,
                 url = url,
+                apkUrl = apkUrl,
             )
         }
     }

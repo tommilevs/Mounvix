@@ -31,13 +31,14 @@ class UpdateCheckerTest {
     fun newerReleaseIsAvailable() {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """{"tag_name":"v0.2.0","html_url":"https://github.com/tommilevs/Mounvix/releases/tag/v0.2.0"}"""
+                """{"tag_name":"v0.2.0","html_url":"https://github.com/tommilevs/Mounvix/releases/tag/v0.2.0","assets":[{"name":"mounvix-android-0.2.0.apk","browser_download_url":"https://example.com/mounvix-android-0.2.0.apk"}]}"""
             )
         )
         val info = checker().check("0.1.0")
         assertTrue(info.available)
         assertEquals("v0.2.0", info.tag)
         assertEquals("https://github.com/tommilevs/Mounvix/releases/tag/v0.2.0", info.url)
+        assertEquals("https://example.com/mounvix-android-0.2.0.apk", info.apkUrl)
         val req = server.takeRequest()
         assertTrue(req.path!!.endsWith("/repos/tommilevs/Mounvix/releases/latest"))
         assertTrue(req.getHeader("User-Agent")!!.startsWith("Mounvix"))
