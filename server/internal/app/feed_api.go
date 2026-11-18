@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	defaultFeedAPILimit = 20
+	defaultFeedAPILimit = 50
 	maxFeedAPILimit     = 100
 	maxSessionBodyBytes = 16 << 10
 )
@@ -28,8 +28,8 @@ type apiSessionRequest struct {
 }
 
 type feedAPIResponse struct {
-	Cards  []feedAPICard `json:"cards"`
-	Cursor time.Time     `json:"cursor"`
+	Items     []feedAPICard `json:"items"`
+	NextSince time.Time     `json:"next_since"`
 }
 
 type feedAPICard struct {
@@ -132,13 +132,13 @@ func (a *App) handleFeedsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cards, cursor := a.feeds.List(u.Name, since, limit)
-	result := feedAPIResponse{Cards: make([]feedAPICard, 0, len(cards)), Cursor: cursor}
+	result := feedAPIResponse{Items: make([]feedAPICard, 0, len(cards)), NextSince: cursor}
 	for _, card := range cards {
 		visible := a.visibleFeedCard(u, card)
 		if len(visible.Media) == 0 {
 			continue
 		}
-		result.Cards = append(result.Cards, visible)
+		result.Items = append(result.Items, visible)
 	}
 	writeJSON(w, result)
 }

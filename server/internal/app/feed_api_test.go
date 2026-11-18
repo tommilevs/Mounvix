@@ -222,7 +222,7 @@ func TestFeedsAPIFiltersACLAndMarksRead(t *testing.T) {
 		t.Fatalf("feed list status=%d body=%q", resp.StatusCode, body)
 	}
 	var result struct {
-		Cards []struct {
+		Items []struct {
 			ID     string `json:"id"`
 			IsRead bool   `json:"is_read"`
 			Media  []struct {
@@ -231,19 +231,19 @@ func TestFeedsAPIFiltersACLAndMarksRead(t *testing.T) {
 				ThumbnailURL string `json:"thumbnail_url"`
 				FileURL      string `json:"file_url"`
 			} `json:"media"`
-		} `json:"cards"`
-		Cursor time.Time `json:"cursor"`
+		} `json:"items"`
+		NextSince time.Time `json:"next_since"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		t.Fatalf("decode feed list: %v body=%q", err, body)
 	}
-	if len(result.Cards) != 1 || len(result.Cards[0].Media) != 1 {
-		t.Fatalf("ACL-filtered cards = %+v; want only one shared-root card", result.Cards)
+	if len(result.Items) != 1 || len(result.Items[0].Media) != 1 {
+		t.Fatalf("ACL-filtered cards = %+v; want only one shared-root card", result.Items)
 	}
-	if result.Cursor.IsZero() {
+	if result.NextSince.IsZero() {
 		t.Fatal("feed response omitted the synchronization cursor")
 	}
-	item := result.Cards[0].Media[0]
+	item := result.Items[0].Media[0]
 	if item.Root != "shared" || item.Path != "visible.jpg" || item.FileURL == "" || !strings.HasPrefix(item.FileURL, "/api/v1/file?") || !strings.HasPrefix(item.ThumbnailURL, "/api/v1/thumbs?") {
 		t.Fatalf("visible media = %+v", item)
 	}
@@ -285,7 +285,7 @@ func TestFeedsAPIFiltersACLAndMarksRead(t *testing.T) {
 		t.Fatalf("private file status=%d, want 403", privateResp.StatusCode)
 	}
 
-	readPath := "/api/v1/feeds/" + result.Cards[0].ID + "/read"
+	readPath := "/api/v1/feeds/" + result.Items[0].ID + "/read"
 	readResp, err := client.Post(srv.URL+readPath, "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatal(err)
@@ -314,8 +314,8 @@ func TestFeedsAPIFiltersACLAndMarksRead(t *testing.T) {
 	if err := json.Unmarshal(body, &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Cards) != 1 || !result.Cards[0].IsRead {
-		t.Fatalf("read state after mark = %+v", result.Cards)
+	if len(result.Items) != 1 || !result.Items[0].IsRead {
+		t.Fatalf("read state after mark = %+v", result.Items)
 	}
 	resp, err = client.Post(srv.URL+"/api/v1/feeds/not-found/read", "application/json", strings.NewReader("{}"))
 	if err != nil {
@@ -382,13 +382,13 @@ func TestFeedsAPIFiltersOutCardsWithoutAccessibleMedia(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	var result struct {
-		Cards []json.RawMessage `json:"cards"`
+		Items []json.RawMessage `json:"items"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != http.StatusOK || len(result.Cards) != 0 {
-		t.Fatalf("feed list status=%d cards=%d; want empty", resp.StatusCode, len(result.Cards))
+	if resp.StatusCode != http.StatusOK || len(result.Items) != 0 {
+		t.Fatalf("feed list status=%d cards=%d; want empty", resp.StatusCode, len(result.Items))
 	}
 	readResp, err := client.Post(srv.URL+"/api/v1/feeds/"+hiddenCard.ID+"/read", "application/json", strings.NewReader("{}"))
 	if err != nil {
