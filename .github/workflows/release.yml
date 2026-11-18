@@ -26,6 +26,19 @@ jobs:
           for a in arm64 arm mipsle mips amd64 386; do ./scripts/make-ipk.sh "$a" "$V"; done
           for a in amd64 arm64 arm 386; do ./scripts/make-deb.sh "$a" "$V" || true; done
           for a in arm64 arm mipsle mips amd64 386; do ./scripts/package-tar.sh "$a" "$V"; done
+      - name: opkg feed
+        run: ./scripts/make-feed.sh "${GITHUB_REF_NAME#v}"
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          V="${GITHUB_REF_NAME#v}"
+          cp app/build/outputs/apk/debug/app-debug.apk "../dist/mounvix-android-${V}-debug.apk"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -40,3 +53,6 @@ jobs:
             dist/ipk/*.ipk
             dist/deb/*.deb
             dist/tar/*.tar.gz
+            dist/feed/Packages
+            dist/feed/Packages.gz
+            dist/mounvix-android-*.apk
