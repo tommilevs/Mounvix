@@ -12,14 +12,27 @@ android {
         applicationId = "com.mounvix.app"
         minSdk = 29
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.2"
+    }
+
+    signingConfigs {
+        val ksPath = System.getenv("MOUNVIX_KEYSTORE")
+        if (ksPath != null && file(ksPath).exists()) {
+            create("release") {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("MOUNVIX_STORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("MOUNVIX_KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("MOUNVIX_KEY_PASSWORD") ?: ""
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 

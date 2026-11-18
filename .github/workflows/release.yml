@@ -34,11 +34,23 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Android APK
+        env:
+          KEYSTORE_B64: ${{ secrets.MOUNVIX_KEYSTORE_B64 }}
+          MOUNVIX_STORE_PASSWORD: ${{ secrets.MOUNVIX_STORE_PASSWORD }}
+          MOUNVIX_KEY_ALIAS: ${{ secrets.MOUNVIX_KEY_ALIAS }}
+          MOUNVIX_KEY_PASSWORD: ${{ secrets.MOUNVIX_KEY_PASSWORD }}
         run: |
           cd android
-          ./gradlew assembleDebug --no-daemon
           V="${GITHUB_REF_NAME#v}"
-          cp app/build/outputs/apk/debug/app-debug.apk "../dist/mounvix-android-${V}-debug.apk"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > /tmp/mounvix.jks
+            export MOUNVIX_KEYSTORE=/tmp/mounvix.jks
+            ./gradlew assembleRelease --no-daemon
+            cp app/build/outputs/apk/release/app-release.apk "../dist/mounvix-android-${V}.apk"
+          else
+            ./gradlew assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk "../dist/mounvix-android-${V}-debug.apk"
+          fi
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
