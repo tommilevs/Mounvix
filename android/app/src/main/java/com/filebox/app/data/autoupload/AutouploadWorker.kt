@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.mounvix.app.data.notify.Notifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -60,6 +61,7 @@ class AutouploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
             .putString("autoupload_status", "загружено: $uploaded, ошибок: $errors")
             .putLong("autoupload_last_run", System.currentTimeMillis())
             .apply()
+        Notifier.show(applicationContext, "Mounvix: автозагрузка", AutouploadSummary.text(uploaded, errors))
         Result.success()
     }
 

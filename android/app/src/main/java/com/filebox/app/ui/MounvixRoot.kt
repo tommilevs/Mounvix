@@ -15,7 +15,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -30,6 +37,14 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun MounvixRoot() {
     val context = LocalContext.current
     val viewModel: MounvixViewModel = viewModel { MounvixViewModel(context.applicationContext) }
+    val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     var tab by rememberSaveable { mutableStateOf("files") }
 
     Scaffold(

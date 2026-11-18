@@ -13,6 +13,7 @@ import com.mounvix.app.data.db.Favorite
 import com.mounvix.app.data.db.Recent
 import com.mounvix.app.data.model.FileEntry
 import com.mounvix.app.data.ai.AiRecognizer
+import com.mounvix.app.data.notify.Notifier
 import com.mounvix.app.data.model.FileNameRules
 import com.mounvix.app.data.model.FileType
 import com.mounvix.app.data.repository.FavoriteRepository
@@ -938,6 +939,7 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
             _transfers.update { list -> list.map { if (it.id == id) it.copy(state = if (ok) "готово" else "ошибка") else it } }
             tmp.delete()
             if (ok) refresh()
+            Notifier.show(appContext, "Mounvix", if (ok) "Загружено: " + name else "Ошибка загрузки", 1002)
             withContext(Dispatchers.Main) { showToast(if (ok) "Загружено: " + name else "Ошибка загрузки") }
         }
         return true
