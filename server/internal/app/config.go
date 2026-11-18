@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/tommilevs/Mounvix/server/internal/feeds"
 )
 
 // Root — опубликованная папка, к которой имеют доступ пользователи.
@@ -13,15 +15,19 @@ type Root struct {
 	ReadOnly bool   `json:"read_only"`
 }
 
+// FeedConfig aliases the shared feed scheduler configuration.
+type FeedConfig = feeds.Config
+
 // Config — конфиг сервера (config.json).
 type Config struct {
-	Port      int    `json:"port"`
-	DataDir   string `json:"data_dir"`
-	Lang      string `json:"lang"`
-	AIBaseURL string `json:"ai_base_url,omitempty"`
-	AIModel   string `json:"ai_model,omitempty"`
-	AIKey     string `json:"ai_key,omitempty"`
-	Roots     []Root `json:"roots"`
+	Port      int        `json:"port"`
+	DataDir   string     `json:"data_dir"`
+	Lang      string     `json:"lang"`
+	AIBaseURL string     `json:"ai_base_url,omitempty"`
+	AIModel   string     `json:"ai_model,omitempty"`
+	AIKey     string     `json:"ai_key,omitempty"`
+	Roots     []Root     `json:"roots"`
+	Feeds     FeedConfig `json:"feeds"`
 }
 
 func DefaultConfig() Config {
@@ -30,6 +36,7 @@ func DefaultConfig() Config {
 		DataDir: "data",
 		Lang:    "ru",
 		Roots:   []Root{{Name: "home", Path: "/", ReadOnly: false}},
+		Feeds:   feeds.DefaultConfig(),
 	}
 }
 

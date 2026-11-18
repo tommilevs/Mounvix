@@ -1,12 +1,15 @@
 package app
 
 import (
+	"context"
 	"html/template"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/tommilevs/Mounvix/server/internal/backup"
+	"github.com/tommilevs/Mounvix/server/internal/feeds"
 	"github.com/tommilevs/Mounvix/server/internal/plugins"
 	"github.com/tommilevs/Mounvix/server/internal/share"
 	"github.com/tommilevs/Mounvix/server/internal/version"
@@ -23,6 +26,7 @@ type App struct {
 	locks     webdav.LockSystem
 	shares    *share.Manager
 	backups   *backup.Manager
+	feeds     *feeds.Manager
 	regs      *RegStore
 	pluginReg *plugins.Registry
 	started   time.Time
@@ -49,11 +53,42 @@ func New(cfg Config, cfgPath string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, regs: rg, pluginReg: pl, started: time.Now(), locks: webdav.NewMemLS()}
+	feedManager, err := feeds.New(cfg.DataDir, cfg.Feeds)
+	if err != nil {
+		return nil, err
+	}
+	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, feeds: feedManager, regs: rg, pluginReg: pl, started: time.Now(), locks: webdav.NewMemLS()}
 	a.tmpl = mustTemplates(a)
 	a.mux = http.NewServeMux()
 	a.routes()
+	go a.runFeedScheduler(context.Background())
 	return a, nil
+}
+
+func (a *App) runFeedScheduler(ctx context.Context) {
+	if err := a.runFeedSchedulerOnce(ctx, time.Now()); err != nil {
+		log.Printf("mounvix feeds: scheduler run: %v", err)
+	}
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			if err := a.runFeedSchedulerOnce(ctx, now); err != nil {
+				log.Printf("mounvix feeds: scheduler run: %v", err)
+			}
+		}
+	}
+}
+
+func (a *App) runFeedSchedulerOnce(ctx context.Context, now time.Time) error {
+	roots := make([]feeds.Root, 0, len(a.cfg.Roots))
+	for _, root := range a.cfg.Roots {
+		roots = append(roots, feeds.Root{Name: root.Name, Path: root.Path})
+	}
+	return a.feeds.RunDue(ctx, now, roots)
 }
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.mux.ServeHTTP(w, r) }

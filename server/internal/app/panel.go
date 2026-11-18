@@ -23,8 +23,11 @@ func stringsRU() map[string]string {
 		"lang": "Язык", "save": "Сохранить", "logs": "Логи", "time": "Время", "action": "Действие",
 		"info": "Информация", "stats": "Статистика", "total_users": "Пользователей",
 		"total_roots": "Папок", "total_sessions": "Активных сессий", "audit_events": "Событий аудита",
-		"settings_note": "Корни задаются в config.json. Здесь можно сменить язык интерфейса.",
-		"no_access":     "Нет доступа", "acl": "Доступ к папкам (чтение/запись)", "create": "Создать",
+		"settings_note": "Корни задаются в config.json. Здесь можно сменить язык и настроить ленту «Воспоминания».",
+		"feeds_title":   "Воспоминания", "feeds_enable": "Включить автоматические подборки", "feeds_roots": "Корни для сканирования", "feeds_weekdays": "Дни недели", "feeds_times": "Время генерации (ЧЧ:ММ, через запятую)",
+		"feeds_quiet_start": "Начало тихих часов", "feeds_quiet_end": "Конец тихих часов", "feeds_period": "Период поиска, дней", "feeds_max_items": "Медиа в карточке (макс. 8)", "feeds_retention": "Хранить карточки, дней",
+		"weekday_mon": "Пн", "weekday_tue": "Вт", "weekday_wed": "Ср", "weekday_thu": "Чт", "weekday_fri": "Пт", "weekday_sat": "Сб", "weekday_sun": "Вс",
+		"no_access": "Нет доступа", "acl": "Доступ к папкам (чтение/запись)", "create": "Создать",
 	}
 }
 
@@ -42,8 +45,11 @@ func stringsEN() map[string]string {
 		"lang": "Language", "save": "Save", "logs": "Logs", "time": "Time", "action": "Action",
 		"info": "Info", "stats": "Stats", "total_users": "Users", "total_roots": "Folders",
 		"total_sessions": "Active sessions", "audit_events": "Audit events",
-		"settings_note": "Roots are set in config.json. Here you can change the interface language.",
-		"no_access":     "No access", "acl": "Folder access (read/write)", "create": "Create",
+		"settings_note": "Roots are set in config.json. Here you can change the language and configure Memories.",
+		"feeds_title":   "Memories", "feeds_enable": "Enable automatic collections", "feeds_roots": "Roots to scan", "feeds_weekdays": "Weekdays", "feeds_times": "Generation times (HH:MM, comma-separated)",
+		"feeds_quiet_start": "Quiet hours start", "feeds_quiet_end": "Quiet hours end", "feeds_period": "Search period, days", "feeds_max_items": "Media per card (max 8)", "feeds_retention": "Keep cards, days",
+		"weekday_mon": "Mon", "weekday_tue": "Tue", "weekday_wed": "Wed", "weekday_thu": "Thu", "weekday_fri": "Fri", "weekday_sat": "Sat", "weekday_sun": "Sun",
+		"no_access": "No access", "acl": "Folder access (read/write)", "create": "Create",
 	}
 }
 
@@ -210,15 +216,42 @@ func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		_ = r.ParseForm()
-		if lang := r.PostFormValue("lang"); lang == "ru" || lang == "en" {
-			a.cfg.Lang = lang
-			if err := SaveConfig(a.cfgPath, a.cfg); err != nil {
-				a.store.Audit("admin", "settings_save_failed", err.Error())
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form", http.StatusBadRequest)
+			return
+		}
+		switch r.PostFormValue("action") {
+		case "lang":
+			if lang := r.PostFormValue("lang"); lang == "ru" || lang == "en" {
+				a.cfg.Lang = lang
+				if err := SaveConfig(a.cfgPath, a.cfg); err != nil {
+					a.store.Audit("admin", "settings_save_failed", err.Error())
+				}
+				if u, ok := a.cookieUser(r); ok {
+					a.store.Audit(u.Name, "settings_lang", lang)
+				}
 			}
-			if u, ok := a.cookieUser(r); ok {
-				a.store.Audit(u.Name, "settings_lang", lang)
+		case "feeds":
+			u, ok := a.cookieUser(r)
+			if !ok || !u.IsAdmin() {
+				http.Error(w, "admin required", http.StatusForbidden)
+				return
 			}
+			cfg, err := parseFeedConfig(r, a.cfg.Feeds, a.cfg.Roots)
+			if err != nil {
+				http.Error(w, "invalid memories feed settings: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			next := a.cfg
+			next.Feeds = cfg
+			if err := SaveConfig(a.cfgPath, next); err != nil {
+				a.store.Audit(u.Name, "feed_settings_save_failed", err.Error())
+				http.Error(w, "could not save settings", http.StatusInternalServerError)
+				return
+			}
+			a.cfg.Feeds = cfg
+			a.feeds.SetConfig(cfg)
+			a.store.Audit(u.Name, "feed_settings", "updated")
 		}
 		http.Redirect(w, r, "/settings", http.StatusSeeOther)
 		return
@@ -245,9 +278,30 @@ func (a *App) handleStats(w http.ResponseWriter, r *http.Request) {
 	a.render(w, "stats.html", v)
 }
 
+func hasInt(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func mustTemplates(a *App) *template.Template {
 	t := template.New("root").Funcs(template.FuncMap{
-		"T": func(k string) string { return a.T(k) },
+		"T":         func(k string) string { return a.T(k) },
+		"hasInt":    hasInt,
+		"hasString": hasString,
+		"join":      strings.Join,
 		"fmtTime": func(t time.Time) string {
 			return t.Format("02.01 15:04:05")
 		},
@@ -327,6 +381,32 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <option value="en" {{if eq .Lang "en"}}selected{{end}}>English</option></select></label>
 <button>{{T "save"}}</button>
 </form>
+{{if .User.IsAdmin}}
+<section class="card">
+<h2>{{T "feeds_title"}}</h2>
+<form method="post" action="/settings">
+<input type="hidden" name="action" value="feeds">
+<label><input type="checkbox" name="feeds_enabled" value="true" {{if .Cfg.Feeds.Enabled}}checked{{end}}> {{T "feeds_enable"}}</label>
+<div class="row"><label>{{T "feeds_roots"}}
+<select name="feeds_roots" multiple size="4">{{range .Cfg.Roots}}<option value="{{.Name}}" {{if hasString $.Cfg.Feeds.RootNames .Name}}selected{{end}}>{{.Name}}</option>{{end}}</select></label></div>
+<div class="row"><span>{{T "feeds_weekdays"}}:</span>
+<label><input type="checkbox" name="feeds_weekdays" value="1" {{if hasInt .Cfg.Feeds.Weekdays 1}}checked{{end}}>{{T "weekday_mon"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="2" {{if hasInt .Cfg.Feeds.Weekdays 2}}checked{{end}}>{{T "weekday_tue"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="3" {{if hasInt .Cfg.Feeds.Weekdays 3}}checked{{end}}>{{T "weekday_wed"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="4" {{if hasInt .Cfg.Feeds.Weekdays 4}}checked{{end}}>{{T "weekday_thu"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="5" {{if hasInt .Cfg.Feeds.Weekdays 5}}checked{{end}}>{{T "weekday_fri"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="6" {{if hasInt .Cfg.Feeds.Weekdays 6}}checked{{end}}>{{T "weekday_sat"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="7" {{if hasInt .Cfg.Feeds.Weekdays 7}}checked{{end}}>{{T "weekday_sun"}}</label></div>
+<div class="row"><label>{{T "feeds_times"}} <input name="feeds_times" value="{{join .Cfg.Feeds.Times ","}}" placeholder="09:00,18:00"></label></div>
+<div class="row"><label>{{T "feeds_quiet_start"}} <input type="time" name="feeds_quiet_start" value="{{.Cfg.Feeds.QuietHoursStart}}"></label>
+<label>{{T "feeds_quiet_end"}} <input type="time" name="feeds_quiet_end" value="{{.Cfg.Feeds.QuietHoursEnd}}"></label></div>
+<div class="row"><label>{{T "feeds_period"}} <input type="number" min="1" max="365" name="feeds_period_days" value="{{.Cfg.Feeds.PeriodDays}}"></label>
+<label>{{T "feeds_max_items"}} <input type="number" min="1" max="8" name="feeds_max_items" value="{{.Cfg.Feeds.MaxItems}}"></label>
+<label>{{T "feeds_retention"}} <input type="number" min="1" max="365" name="feeds_retention_days" value="{{.Cfg.Feeds.RetentionDays}}"></label></div>
+<button>{{T "save"}}</button>
+</form>
+</section>
+{{end}}
 <table><tr><th>{{T "name"}}</th><th>{{T "path"}}</th><th>{{T "readonly"}}</th></tr>
 {{range .Cfg.Roots}}<tr><td>{{.Name}}</td><td>{{.Path}}</td><td>{{if .ReadOnly}}yes{{else}}no{{end}}</td></tr>{{end}}</table>
 <p class="muted">config: {{.CfgPath}}</p>
