@@ -1,5 +1,7 @@
 package com.mounvix.app.data.source
 
+import android.os.CancellationSignal
+import android.os.OperationCanceledException
 import com.mounvix.app.data.model.FileEntry
 import com.mounvix.app.data.model.FileType
 import net.schmizz.sshj.SSHClient
@@ -7,9 +9,13 @@ import net.schmizz.sshj.sftp.FileMode
 import net.schmizz.sshj.sftp.OpenMode
 import net.schmizz.sshj.sftp.SFTPClient
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import java.io.Closeable
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
 import java.util.EnumSet
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Настройки SFTP-сервера. */
 data class SftpServer(
@@ -164,6 +170,89 @@ class SftpStorageSource(private val server: SftpServer) : StorageSource {
         System.out.println("SFTP upload error: ${e.message}")
         false
     }
+    override fun uploadCancellable(
+        input: InputStream,
+        contentLength: Long,
+        path: String,
+        signal: CancellationSignal,
+        onProgress: (Long, Long) -> Unit
+    ) {
+        val client = SSHClient()
+        var activeSftp: SFTPClient? = null
+        var remoteResources: Closeable? = null
+        signal.setOnCancelListener {
+            try {
+                client.disconnect()
+            } catch (_: Exception) {
+            }
+        }
+
+        try {
+            signal.throwIfCanceled()
+            client.addHostKeyVerifier(PromiscuousVerifier())
+            client.connect(server.host, server.port)
+            signal.throwIfCanceled()
+            client.authPassword(server.user, server.password.toCharArray())
+            signal.throwIfCanceled()
+            val sftp = client.newSFTPClient()
+            activeSftp = sftp
+            signal.throwIfCanceled()
+            val remoteFile = sftp.open(
+                remotePath(path.trim('/')),
+                EnumSet.of(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC)
+            )
+            val closed = AtomicBoolean()
+            val resources = Closeable {
+                if (closed.compareAndSet(false, true)) {
+                    try {
+                        remoteFile.close()
+                    } finally {
+                        try {
+                            sftp.close()
+                        } finally {
+                            client.disconnect()
+                        }
+                    }
+                }
+            }
+            remoteResources = resources
+            val transfer = CancellableUpload(input, signal) { resources.close() }
+            var offset = 0L
+            try {
+                resources.use {
+                    transfer.copyTo(contentLength, onProgress) { buffer, count ->
+                        signal.throwIfCanceled()
+                        remoteFile.write(offset, buffer, 0, count)
+                        offset += count
+                    }
+                }
+                signal.throwIfCanceled()
+            } finally {
+                transfer.close()
+            }
+            signal.throwIfCanceled()
+        } catch (cancelled: OperationCanceledException) {
+            throw cancelled
+        } catch (error: IOException) {
+            if (signal.isCanceled) throw OperationCanceledException("Upload cancelled")
+            throw error
+        } catch (error: Exception) {
+            if (signal.isCanceled) throw OperationCanceledException("Upload cancelled")
+            throw IOException("SFTP upload failed", error)
+        } finally {
+            signal.setOnCancelListener(null)
+            try {
+                if (remoteResources != null) {
+                    remoteResources.close()
+                } else {
+                    activeSftp?.close()
+                    client.disconnect()
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     override fun downloadTo(path: String, target: File): Boolean = try {
         target.parentFile?.mkdirs()
         withSftp { sftp ->
