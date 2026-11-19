@@ -8,21 +8,26 @@ import android.os.CancellationSignal
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
+interface AutouploadNetworkGuard {
+    fun isWifiConnected(): Boolean
+    fun monitorDisconnect(signal: CancellationSignal): AutoCloseable
+}
+
 /** Accepts only the active Wi-Fi transport and cancels work when it is lost. */
-class AutouploadWifiGuard(private val connectivityManager: ConnectivityManager) {
+class AutouploadWifiGuard(private val connectivityManager: ConnectivityManager) : AutouploadNetworkGuard {
 
     constructor(context: Context) : this(
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: throw IllegalStateException("Connectivity service is unavailable")
     )
 
-    fun isWifiConnected(): Boolean {
+    override fun isWifiConnected(): Boolean {
         val activeNetwork = connectivityManager.activeNetwork ?: return false
         return hasWifiTransport(activeNetwork)
     }
 
     /** Registers a default-network callback and cancels [signal] if Wi-Fi ceases to be active. */
-    fun monitorDisconnect(signal: CancellationSignal): AutoCloseable {
+    override fun monitorDisconnect(signal: CancellationSignal): AutoCloseable {
         val activeWifiNetwork = AtomicReference(
             connectivityManager.activeNetwork?.takeIf(::hasWifiTransport)
         )

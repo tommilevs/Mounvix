@@ -58,6 +58,12 @@ abstract class AutouploadDao {
     )
     abstract fun legacyCutoff(treeKey: String, destinationKey: String): AutouploadLegacyCutoff?
 
+    @Query("SELECT EXISTS(SELECT 1 FROM autoupload_legacy_cutoffs LIMIT 1)")
+    abstract fun hasAnyLegacyCutoff(): Boolean
+
+    @Query("SELECT COUNT(*) FROM autoupload_legacy_cutoffs")
+    abstract fun legacyCutoffCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract fun insertCutoffIfAbsent(cutoff: AutouploadLegacyCutoff)
 

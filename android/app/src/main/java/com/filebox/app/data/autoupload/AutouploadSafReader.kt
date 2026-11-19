@@ -19,8 +19,12 @@ data class SafEntry(
         get() = mimeType == DocumentsContract.Document.MIME_TYPE_DIR
 }
 
+fun interface AutouploadMetadataReader {
+    fun entries(treeUri: Uri): Sequence<SafEntry>
+}
+
 /** Reads SAF metadata only; it never opens a content stream. */
-class AutouploadSafReader(private val contentResolver: ContentResolver) {
+class AutouploadSafReader(private val contentResolver: ContentResolver) : AutouploadMetadataReader {
     private data class DirectoryFrame(
         val relativeSegments: List<String>,
         val children: Iterator<SafEntry>
@@ -58,7 +62,7 @@ class AutouploadSafReader(private val contentResolver: ContentResolver) {
     }
 
     /** Iterative deterministic depth-first traversal; only the active directory frames are retained. */
-    fun entries(treeUri: Uri): Sequence<SafEntry> = sequence {
+    override fun entries(treeUri: Uri): Sequence<SafEntry> = sequence {
         val stack = ArrayDeque<DirectoryFrame>()
         stack.addLast(DirectoryFrame(emptyList(), listChildren(treeUri).iterator()))
 
