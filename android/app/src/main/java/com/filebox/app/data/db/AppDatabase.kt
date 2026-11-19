@@ -5,11 +5,22 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [Favorite::class, Recent::class], version = 1)
+@Database(
+    entities = [
+        Favorite::class,
+        Recent::class,
+        AutouploadReceipt::class,
+        AutouploadAttempt::class,
+        AutouploadLegacyCutoff::class,
+        AutouploadRunState::class
+    ],
+    version = 2
+)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun favoritesDao(): FavoritesDao
     abstract fun recentsDao(): RecentsDao
+    abstract fun autouploadDao(): AutouploadDao
 
     companion object {
         @Volatile
@@ -21,7 +32,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "mounvix.db"
-                ).fallbackToDestructiveMigration().build().also { instance = it }
+                ).addMigrations(AutouploadMigrations.MIGRATION_1_2).build().also { instance = it }
             }
     }
 }

@@ -1,0 +1,406 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "b46607d67b0570ad7becf0980ba5a2d9",
+    "entities": [
+      {
+        "tableName": "favorites",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `storageKey` TEXT NOT NULL, `kind` TEXT NOT NULL, `name` TEXT NOT NULL, `treeId` TEXT NOT NULL, `relPath` TEXT NOT NULL, `size` INTEGER NOT NULL, `modifiedAt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "storageKey",
+            "columnName": "storageKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "treeId",
+            "columnName": "treeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relPath",
+            "columnName": "relPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "size",
+            "columnName": "size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedAt",
+            "columnName": "modifiedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_favorites_storageKey",
+            "unique": true,
+            "columnNames": [
+              "storageKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_favorites_storageKey` ON `${TABLE_NAME}` (`storageKey`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "recents",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `storageKey` TEXT NOT NULL, `kind` TEXT NOT NULL, `name` TEXT NOT NULL, `treeId` TEXT NOT NULL, `relPath` TEXT NOT NULL, `size` INTEGER NOT NULL, `modifiedAt` INTEGER NOT NULL, `openedAt` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "storageKey",
+            "columnName": "storageKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "treeId",
+            "columnName": "treeId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relPath",
+            "columnName": "relPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "size",
+            "columnName": "size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedAt",
+            "columnName": "modifiedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "openedAt",
+            "columnName": "openedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_recents_storageKey",
+            "unique": true,
+            "columnNames": [
+              "storageKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_recents_storageKey` ON `${TABLE_NAME}` (`storageKey`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "autoupload_receipts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tree_key` TEXT NOT NULL, `document_key` TEXT NOT NULL, `destination_key` TEXT NOT NULL, `size_bytes` INTEGER NOT NULL, `modified_ms` INTEGER NOT NULL, `relative_path` TEXT NOT NULL, `uploaded_at_ms` INTEGER NOT NULL, PRIMARY KEY(`tree_key`, `document_key`, `destination_key`))",
+        "fields": [
+          {
+            "fieldPath": "treeKey",
+            "columnName": "tree_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentKey",
+            "columnName": "document_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "destinationKey",
+            "columnName": "destination_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "size_bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedMs",
+            "columnName": "modified_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadedAtMs",
+            "columnName": "uploaded_at_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tree_key",
+            "document_key",
+            "destination_key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_autoupload_receipts_tree_key_destination_key_document_key",
+            "unique": false,
+            "columnNames": [
+              "tree_key",
+              "destination_key",
+              "document_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_autoupload_receipts_tree_key_destination_key_document_key` ON `${TABLE_NAME}` (`tree_key`, `destination_key`, `document_key`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "autoupload_attempts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tree_key` TEXT NOT NULL, `document_key` TEXT NOT NULL, `destination_key` TEXT NOT NULL, `size_bytes` INTEGER NOT NULL, `modified_ms` INTEGER NOT NULL, `relative_path` TEXT NOT NULL, `attempt_count` INTEGER NOT NULL, `next_retry_ms` INTEGER NOT NULL, `safe_error_class` TEXT, PRIMARY KEY(`tree_key`, `document_key`, `destination_key`))",
+        "fields": [
+          {
+            "fieldPath": "treeKey",
+            "columnName": "tree_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "documentKey",
+            "columnName": "document_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "destinationKey",
+            "columnName": "destination_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sizeBytes",
+            "columnName": "size_bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedMs",
+            "columnName": "modified_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attemptCount",
+            "columnName": "attempt_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextRetryMs",
+            "columnName": "next_retry_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "safeErrorClass",
+            "columnName": "safe_error_class",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tree_key",
+            "document_key",
+            "destination_key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_autoupload_attempts_tree_key_destination_key_document_key",
+            "unique": false,
+            "columnNames": [
+              "tree_key",
+              "destination_key",
+              "document_key"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_autoupload_attempts_tree_key_destination_key_document_key` ON `${TABLE_NAME}` (`tree_key`, `destination_key`, `document_key`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "autoupload_legacy_cutoffs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tree_key` TEXT NOT NULL, `destination_key` TEXT NOT NULL, `cutoff_ms` INTEGER NOT NULL, PRIMARY KEY(`tree_key`, `destination_key`))",
+        "fields": [
+          {
+            "fieldPath": "treeKey",
+            "columnName": "tree_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "destinationKey",
+            "columnName": "destination_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cutoffMs",
+            "columnName": "cutoff_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tree_key",
+            "destination_key"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "autoupload_run_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`tree_key` TEXT NOT NULL, `destination_key` TEXT NOT NULL, `outcome` TEXT NOT NULL, `updated_at_ms` INTEGER NOT NULL, `uploaded_count` INTEGER NOT NULL, `error_count` INTEGER NOT NULL, `safe_error_class` TEXT, PRIMARY KEY(`tree_key`, `destination_key`))",
+        "fields": [
+          {
+            "fieldPath": "treeKey",
+            "columnName": "tree_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "destinationKey",
+            "columnName": "destination_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "outcome",
+            "columnName": "outcome",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updated_at_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uploadedCount",
+            "columnName": "uploaded_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "errorCount",
+            "columnName": "error_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "safeErrorClass",
+            "columnName": "safe_error_class",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "tree_key",
+            "destination_key"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b46607d67b0570ad7becf0980ba5a2d9')"
+    ]
+  }
+}

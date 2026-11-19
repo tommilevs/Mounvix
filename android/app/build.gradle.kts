@@ -4,6 +4,10 @@ plugins {
     id("com.google.devtools.ksp") version "1.9.22-1.0.18"
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
     namespace = "com.mounvix.app"
     compileSdk = 34
