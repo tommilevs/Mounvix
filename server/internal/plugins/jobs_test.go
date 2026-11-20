@@ -44,6 +44,10 @@ func TestJobStorePersistsSequenceAndReconcilesRunningJobs(t *testing.T) {
 	if !ok {
 		t.Fatal("queued job disappeared after restart")
 	}
+	actor, found := store.ActorForRun(queued.RunID)
+	if !found || actor != "admin" {
+		t.Fatalf("reconciliation actor = %q, found=%v", actor, found)
+	}
 	var restoredPayload struct {
 		Safe bool `json:"safe"`
 	}
@@ -579,6 +583,99 @@ func TestJobManagerCloseWaitsForRuntimeForcedKillAndTerminalState(t *testing.T) 
 		t.Fatalf("plugin child %d survived JobManager.Close", pid)
 	} else if !errors.Is(err, syscall.ESRCH) && !errors.Is(err, os.ErrProcessDone) {
 		t.Fatalf("probe child process %d: %v", pid, err)
+	}
+}
+
+func TestJobManagerRecordsIntentForRestoredQueuedJob(t *testing.T) {
+	store, err := NewJobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := store.Enqueue(context.Background(), JobRequest{ActorID: "admin", Kind: "plugin", PluginID: "demo", JobID: "restored"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewJobManager(store, func(context.Context, JobRecord) (string, error) { return "done", nil }, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := make(chan JobRecord, 1)
+	manager.SetIntentRecorder(func(record JobRecord) { intent <- record })
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case record := <-intent:
+		if record.RunID != queued.RunID || record.ActorID != "admin" || record.Status != JobStatusQueued {
+			t.Fatalf("restored job intent = %+v", record)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("restored queued job did not record audit intent")
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestJobManagerPublishesTerminalRecordAfterDurableSave(t *testing.T) {
+	store, err := NewJobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	published := make(chan JobRecord, 1)
+	events := make(chan string, 2)
+	manager, err := NewJobManager(store, func(context.Context, JobRecord) (string, error) {
+		return "done", nil
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.SetIntentRecorder(func(JobRecord) {
+		events <- "intent"
+	})
+	manager.SetOutcomePublisher(func(record JobRecord) {
+		data, err := os.ReadFile(store.path)
+		if err != nil {
+			t.Errorf("read durable job journal in publisher: %v", err)
+			return
+		}
+		var journal jobJournal
+		if err := json.Unmarshal(data, &journal); err != nil {
+			t.Errorf("decode durable job journal in publisher: %v", err)
+			return
+		}
+		persisted := false
+		for _, item := range journal.Records {
+			if item.Record.RunID == record.RunID && item.Record.Status == JobStatusSucceeded {
+				persisted = true
+			}
+		}
+		if record.Status != JobStatusSucceeded || !persisted {
+			t.Errorf("publisher received non-durable terminal run: record=%#v persisted=%v", record, persisted)
+			return
+		}
+		events <- "result"
+		published <- record
+	})
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Enqueue(context.Background(), JobRequest{ActorID: "admin", Kind: "plugin", PluginID: "demo", JobID: "publish"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case record := <-published:
+		if record.Status != JobStatusSucceeded {
+			t.Fatalf("published status=%s, want succeeded", record.Status)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("terminal job outcome was not published immediately")
+	}
+	if first, second := <-events, <-events; first != "intent" || second != "result" {
+		t.Fatalf("audit callback order = %q, %q; want intent then result", first, second)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

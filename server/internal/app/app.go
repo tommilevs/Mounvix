@@ -23,23 +23,28 @@ import (
 
 // App — HTTP-приложение Mounvix (панель + WebDAV + API).
 type App struct {
-	cfgMu      sync.RWMutex
-	cfg        Config
-	cfgPath    string
-	store      *Store
-	mux        *http.ServeMux
-	tmpl       *template.Template
-	locks      webdav.LockSystem
-	shares     *share.Manager
-	backups    *backup.Manager
-	feeds      *feeds.Manager
-	regs       *RegStore
-	pluginReg  *plugins.Registry
-	jobStore   *plugins.JobStore
-	jobManager *plugins.JobManager
-	cancel     context.CancelFunc
-	background sync.WaitGroup
-	started    time.Time
+	cfgMu         sync.RWMutex
+	cfg           Config
+	cfgPath       string
+	store         *Store
+	mux           *http.ServeMux
+	tmpl          *template.Template
+	locks         webdav.LockSystem
+	shares        *share.Manager
+	backups       *backup.Manager
+	feeds         *feeds.Manager
+	regs          *RegStore
+	pluginReg     *plugins.Registry
+	jobStore      *plugins.JobStore
+	jobManager    *plugins.JobManager
+	runtime       *plugins.Runtime
+	hookStore     *plugins.HookStore
+	notifications *plugins.NotificationStore
+	rcloneAdapter plugins.RcloneAdapter
+	ctx           context.Context
+	cancel        context.CancelFunc
+	background    sync.WaitGroup
+	started       time.Time
 }
 
 func (a *App) configSnapshot() Config {
@@ -85,7 +90,16 @@ func New(cfg Config, cfgPath string) (*App, error) {
 		cancel()
 		return nil, err
 	}
+	hookStore, hookErr := plugins.NewHookStore(cfg.DataDir)
+	if hookErr != nil {
+		log.Printf("mounvix plugins: hooks disabled: %v", hookErr)
+	}
+	notifications, notificationErr := plugins.NewNotificationStore(cfg.DataDir)
+	if notificationErr != nil {
+		log.Printf("mounvix plugins: notifications disabled: %v", notificationErr)
+	}
 	runtime := plugins.NewRuntime(cfg.DataDir, pl)
+	rcloneAdapter := plugins.RcloneAdapter{SourceRoot: cfg.RcloneSourceRoot}
 	jobManager, err := plugins.NewJobManager(jobStore,
 		func(ctx context.Context, job plugins.JobRecord) (string, error) {
 			var request struct {
@@ -104,14 +118,11 @@ func New(cfg Config, cfgPath string) (*App, error) {
 			return "plugin job completed", nil
 		},
 		func(ctx context.Context, job plugins.JobRecord) (string, error) {
-			var request struct {
-				Src string `json:"src"`
-				Dst string `json:"dst"`
-			}
+			var request plugins.RcloneJobRequest
 			if err := json.Unmarshal(job.Payload, &request); err != nil {
 				return "", err
 			}
-			if _, err := pl.RcloneSync(ctx, request.Src, request.Dst); err != nil {
+			if _, err := rcloneAdapter.RunSync(ctx, request); err != nil {
 				return "rclone job failed", err
 			}
 			return "rclone job completed", nil
@@ -132,7 +143,24 @@ func New(cfg Config, cfgPath string) (*App, error) {
 			}
 		}
 	}
-	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, feeds: feedManager, regs: rg, pluginReg: pl, jobStore: jobStore, jobManager: jobManager, cancel: cancel, started: time.Now(), locks: webdav.NewMemLS()}
+	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, feeds: feedManager, regs: rg, pluginReg: pl, jobStore: jobStore, jobManager: jobManager, runtime: runtime, hookStore: hookStore, notifications: notifications, rcloneAdapter: rcloneAdapter, ctx: appCtx, cancel: cancel, started: time.Now(), locks: webdav.NewMemLS()}
+	bk.SetReportCallback(func(report backup.Report) {
+		a.publishHook(plugins.HookEvent{EventID: newHookEventID("backup.done"), Kind: "backup.done", Payload: map[string]any{"job_id": report.JobID, "files": report.Files, "bytes": report.Bytes, "skipped": report.Skipped, "error_count": len(report.Errors), "status": "completed"}})
+	})
+	jobManager.SetIntentRecorder(func(record plugins.JobRecord) {
+		action, pluginID := auditedJobOperation(record)
+		if action == "" || pluginID == "" {
+			return
+		}
+		if err := a.pluginReg.RecordAudit(plugins.AuditEvent{Actor: record.ActorID, Phase: "intent", Action: action, PluginID: pluginID, RunID: record.RunID, Outcome: "queued"}); err != nil {
+			log.Printf("mounvix plugins: record job intent %s: %v", record.RunID, err)
+		}
+	})
+	jobManager.SetOutcomePublisher(func(record plugins.JobRecord) {
+		if err := a.publishJobOutcome(record); err != nil {
+			log.Printf("mounvix plugins: publish job outcome %s: %v", record.RunID, err)
+		}
+	})
 	if err := jobManager.Start(appCtx); err != nil {
 		cancel()
 		return nil, err
@@ -216,7 +244,7 @@ func (a *App) runPluginSchedulerOnce(ctx context.Context, now time.Time) error {
 	}
 	slotTime := now.UTC().Truncate(time.Minute)
 	slot := slotTime.Format(time.RFC3339)
-	var schedulerErr error
+	schedulerErr := a.reconcileJobOutcomes(ctx)
 	for _, plugin := range a.pluginReg.List() {
 		if !plugin.Enabled || !plugin.Available || plugin.Manifest == nil || !plugin.Manifest.Capabilities.Schedule {
 			continue

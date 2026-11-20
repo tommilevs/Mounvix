@@ -393,6 +393,18 @@ func (s *JobStore) record(runID string) (JobRecord, bool) {
 	return JobRecord{}, false
 }
 
+// ActorForRun returns only the actor identifier needed by trusted reconciliation.
+func (s *JobStore) ActorForRun(runID string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, item := range s.journal.Records {
+		if item.Record.RunID == runID {
+			return item.Record.ActorID, true
+		}
+	}
+	return "", false
+}
+
 func (s *JobStore) queueRecord(runID string) (JobRecord, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -515,6 +527,8 @@ type JobManager struct {
 	active    map[string]context.CancelFunc
 	pending   map[string]struct{}
 	disabled  map[string]bool
+	onIntent  func(JobRecord)
+	onOutcome func(JobRecord)
 }
 
 // NewJobManager creates a bounded one-worker manager with kind-specific executors.
@@ -523,6 +537,33 @@ func NewJobManager(store *JobStore, plugin, rclone, packageJob JobExecutor) (*Jo
 		return nil, errors.New("job store is required")
 	}
 	return &JobManager{store: store, executors: map[string]JobExecutor{"plugin": plugin, "rclone": rclone, "package": packageJob}, queue: make(chan JobRecord, jobQueueCapacity), active: map[string]context.CancelFunc{}, pending: map[string]struct{}{}, disabled: map[string]bool{}}, nil
+}
+
+// SetIntentRecorder registers a callback invoked before a queued job becomes executable.
+func (m *JobManager) SetIntentRecorder(recorder func(JobRecord)) {
+	m.mu.Lock()
+	m.onIntent = recorder
+	m.mu.Unlock()
+}
+
+// SetOutcomePublisher registers a callback invoked after a terminal job is durable.
+func (m *JobManager) SetOutcomePublisher(publisher func(JobRecord)) {
+	m.mu.Lock()
+	m.onOutcome = publisher
+	m.mu.Unlock()
+}
+
+func (m *JobManager) publishOutcome(runID string) {
+	record, ok := m.store.record(runID)
+	if !ok || !terminalJobStatus(record.Status) {
+		return
+	}
+	m.mu.Lock()
+	publisher := m.onOutcome
+	m.mu.Unlock()
+	if publisher != nil {
+		publisher(record)
+	}
 }
 
 // Start restores queued journal entries and starts the sole worker.
@@ -544,6 +585,9 @@ func (m *JobManager) Start(ctx context.Context) error {
 		select {
 		case m.queue <- r:
 			m.pending[r.RunID] = struct{}{}
+			if m.onIntent != nil {
+				m.onIntent(r)
+			}
 		default:
 			return ErrJobQueueFull
 		}
@@ -620,6 +664,9 @@ func (m *JobManager) Enqueue(ctx context.Context, request JobRequest) (JobRecord
 	if !ok {
 		return JobRecord{}, os.ErrNotExist
 	}
+	if m.onIntent != nil {
+		m.onIntent(queued)
+	}
 	m.queue <- queued
 	m.pending[r.RunID] = struct{}{}
 	return r, nil
@@ -637,7 +684,9 @@ func (m *JobManager) run() {
 				m.mu.Lock()
 				delete(m.pending, r.RunID)
 				m.mu.Unlock()
-				_ = m.store.Cancel(context.Background(), r.RunID)
+				if err := m.store.Cancel(context.Background(), r.RunID); err == nil {
+					m.publishOutcome(r.RunID)
+				}
 				continue
 			}
 			m.execute(r)
@@ -651,7 +700,9 @@ func (m *JobManager) execute(r JobRecord) {
 		delete(m.pending, r.RunID)
 		m.mu.Unlock()
 		cancel()
-		_ = m.store.Cancel(context.Background(), r.RunID)
+		if err := m.store.Cancel(context.Background(), r.RunID); err == nil {
+			m.publishOutcome(r.RunID)
+		}
 		return
 	}
 	delete(m.pending, r.RunID)
@@ -665,12 +716,16 @@ func (m *JobManager) execute(r JobRecord) {
 	defer runCancel()
 	executor := m.executors[r.Kind]
 	if executor == nil {
-		_ = m.store.Finish(context.Background(), r.RunID, "error", "no executor registered for job kind")
+		if err := m.store.Finish(context.Background(), r.RunID, "error", "no executor registered for job kind"); err == nil {
+			m.publishOutcome(r.RunID)
+		}
 		return
 	}
 	summary, runErr := executor(runCtx, r)
 	if ctx.Err() != nil {
-		_ = m.store.Cancel(context.Background(), r.RunID)
+		if err := m.store.Cancel(context.Background(), r.RunID); err == nil {
+			m.publishOutcome(r.RunID)
+		}
 		return
 	}
 	outcome := "success"
@@ -678,7 +733,9 @@ func (m *JobManager) execute(r JobRecord) {
 		outcome = "error"
 		summary = "job execution failed"
 	}
-	_ = m.store.Finish(context.Background(), r.RunID, outcome, summary)
+	if err := m.store.Finish(context.Background(), r.RunID, outcome, summary); err == nil {
+		m.publishOutcome(r.RunID)
+	}
 }
 func (m *JobManager) cancelQueued() {
 	for {
@@ -687,7 +744,9 @@ func (m *JobManager) cancelQueued() {
 			m.mu.Lock()
 			delete(m.pending, r.RunID)
 			m.mu.Unlock()
-			_ = m.store.Cancel(context.Background(), r.RunID)
+			if err := m.store.Cancel(context.Background(), r.RunID); err == nil {
+				m.publishOutcome(r.RunID)
+			}
 		default:
 			return
 		}
@@ -710,6 +769,7 @@ func (m *JobManager) DisablePlugin(ctx context.Context, pluginID string) error {
 		}
 	}
 	queue := make([]JobRecord, 0, len(m.queue))
+	cancelled := make([]string, 0)
 	for {
 		select {
 		case r := <-m.queue:
@@ -722,8 +782,12 @@ func (m *JobManager) DisablePlugin(ctx context.Context, pluginID string) error {
 						m.pending[queued.RunID] = struct{}{}
 					}
 					m.mu.Unlock()
+					for _, runID := range cancelled {
+						m.publishOutcome(runID)
+					}
 					return err
 				}
+				cancelled = append(cancelled, r.RunID)
 			} else {
 				queue = append(queue, r)
 			}
@@ -733,6 +797,9 @@ func (m *JobManager) DisablePlugin(ctx context.Context, pluginID string) error {
 				m.pending[queued.RunID] = struct{}{}
 			}
 			m.mu.Unlock()
+			for _, runID := range cancelled {
+				m.publishOutcome(runID)
+			}
 			return nil
 		}
 	}

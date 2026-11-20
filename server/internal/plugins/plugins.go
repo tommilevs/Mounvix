@@ -284,11 +284,15 @@ func validSource(s PluginSource) bool {
 	return s == SourceLegacy || s == SourcePackage || s == SourceBuiltin
 }
 func (r *Registry) SetEnabled(id string, on bool) error {
-	p, ok := r.effectiveSource(id)
+	return r.SetEnabledAs("system", id, on)
+}
+
+func (r *Registry) SetEnabledAs(actor, id string, on bool) error {
+	source, ok := r.effectiveSource(id)
 	if !ok {
 		return errors.New("plugin not found")
 	}
-	return r.SetSourceEnabled(id, p, on)
+	return r.SetSourceEnabledAs(actor, id, source, on)
 }
 func (r *Registry) effectiveSource(id string) (PluginSource, bool) {
 	r.mu.Lock()
@@ -301,6 +305,10 @@ func (r *Registry) effectiveSource(id string) (PluginSource, bool) {
 	return "", false
 }
 func (r *Registry) SetSourceEnabled(id string, source PluginSource, on bool) error {
+	return r.SetSourceEnabledAs("system", id, source, on)
+}
+
+func (r *Registry) SetSourceEnabledAs(actor, id string, source PluginSource, on bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !validSource(source) {
@@ -310,9 +318,19 @@ func (r *Registry) SetSourceEnabled(id string, source PluginSource, on bool) err
 	if !ok {
 		return errors.New("plugin source not found")
 	}
-	if on && !p.Available {
-		return errors.New("plugin not available (binary missing)")
+	action := "disable"
+	if on {
+		action = "enable"
 	}
+	if err := r.RecordAudit(AuditEvent{Actor: actor, Phase: "intent", Action: action, PluginID: id, Source: source}); err != nil {
+		return fmt.Errorf("record plugin %s intent: %w", action, err)
+	}
+	if on && !p.Available {
+		operationErr := errors.New("plugin not available (binary missing)")
+		auditErr := r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: action, PluginID: id, Source: source, Outcome: "failed"})
+		return errors.Join(operationErr, auditErr)
+	}
+	previous := r.enabledLocked(id, source)
 	switch source {
 	case SourceLegacy:
 		r.legacyEnabled[id] = on
@@ -322,24 +340,56 @@ func (r *Registry) SetSourceEnabled(id string, source PluginSource, on bool) err
 		r.builtinEnabled[id] = on
 	}
 	p.Enabled = on
-	return r.saveLocked()
+	if err := r.saveLocked(); err != nil {
+		switch source {
+		case SourceLegacy:
+			r.legacyEnabled[id] = previous
+		case SourcePackage:
+			r.packageEnabled[id] = previous
+		case SourceBuiltin:
+			r.builtinEnabled[id] = previous
+		}
+		p.Enabled = previous
+		return errors.Join(err, r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: action, PluginID: id, Source: source, Outcome: "failed"}))
+	}
+	if err := r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: action, PluginID: id, Source: source, Outcome: "succeeded"}); err != nil {
+		return fmt.Errorf("record plugin %s result: %w", action, err)
+	}
+	return nil
 }
 func (r *Registry) RemovePackage(id string, confirmedLegacyFallback bool) error {
+	return r.RemovePackageAs("system", id, confirmedLegacyFallback)
+}
+
+func (r *Registry) RemovePackageAs(actor, id string, confirmedLegacyFallback bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.sources[SourcePackage][id]; !ok {
+	plugin, ok := r.sources[SourcePackage][id]
+	if !ok {
 		return errors.New("package plugin not found")
 	}
-	if _, ok := r.sources[SourceLegacy][id]; ok && r.legacyEnabled[id] && !confirmedLegacyFallback {
-		return errors.New("confirmed legacy fallback required")
+	if err := r.RecordAudit(AuditEvent{Actor: actor, Phase: "intent", Action: "remove", PluginID: id, Source: SourcePackage}); err != nil {
+		return fmt.Errorf("record plugin removal intent: %w", err)
 	}
+	if _, ok := r.sources[SourceLegacy][id]; ok && r.legacyEnabled[id] && !confirmedLegacyFallback {
+		operationErr := errors.New("confirmed legacy fallback required")
+		auditErr := r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: "remove", PluginID: id, Source: SourcePackage, Outcome: "failed"})
+		return errors.Join(operationErr, auditErr)
+	}
+	packageEnabled := r.packageEnabled[id]
+	legacy, hasLegacy := r.sources[SourceLegacy][id]
 	delete(r.sources[SourcePackage], id)
 	delete(r.packageEnabled, id)
-	if legacy, ok := r.sources[SourceLegacy][id]; ok {
+	if hasLegacy {
 		legacy.Enabled = r.legacyEnabled[id]
 	}
 	if err := r.saveLocked(); err != nil {
-		return err
+		r.sources[SourcePackage][id] = plugin
+		r.packageEnabled[id] = packageEnabled
+		return errors.Join(err, r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: "remove", PluginID: id, Source: SourcePackage, Outcome: "failed"}))
+	}
+	if err := r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: "remove", PluginID: id, Source: SourcePackage, Outcome: "succeeded"}); err != nil {
+		return fmt.Errorf("record plugin removal result: %w", err)
 	}
 	return nil
 }

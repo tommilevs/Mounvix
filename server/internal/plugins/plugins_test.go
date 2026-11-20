@@ -44,6 +44,68 @@ func TestManifestsAndState(t *testing.T) {
 	}
 }
 
+func TestRegistryAuditsEnableIntentAndResult(t *testing.T) {
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "plugins")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"id":"demo","name":"Demo","version":"1","kind":"process","command":"/bin/true"}`
+	if err := os.WriteFile(filepath.Join(pluginDir, "demo.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.SetEnabledAs("admin", "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	events, err := registry.audit.Recent(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("audit events = %+v, want intent and result", events)
+	}
+	if events[0].Actor != "admin" || events[0].Phase != "intent" || events[0].Action != "enable" || events[0].PluginID != "demo" {
+		t.Fatalf("enable intent event = %+v", events[0])
+	}
+	if events[1].Actor != "admin" || events[1].Phase != "result" || events[1].Action != "enable" || events[1].Outcome != "succeeded" {
+		t.Fatalf("enable result event = %+v", events[1])
+	}
+}
+
+func TestRegistryAuditsPackageRemovalIntentAndResult(t *testing.T) {
+	dir := t.TempDir()
+	pluginRoot := filepath.Join(dir, "system-plugins")
+	pluginDir := filepath.Join(pluginRoot, "demo")
+	if err := os.MkdirAll(filepath.Join(pluginDir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "bin", "demo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","api":1,"author":"test","description":"test","executable":"bin/demo"}`
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewRegistry(dir, pluginRoot, "1.0.0", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RemovePackageAs("admin", "demo", true); err != nil {
+		t.Fatal(err)
+	}
+	events, err := registry.audit.Recent(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Action != "remove" || events[0].Phase != "intent" || events[1].Action != "remove" || events[1].Phase != "result" || events[1].Outcome != "succeeded" {
+		t.Fatalf("removal audit events = %+v", events)
+	}
+}
+
 func TestRegistryPackagePrecedenceAndSourceSpecificState(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "system-plugins")

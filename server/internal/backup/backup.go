@@ -53,15 +53,17 @@ type Report struct {
 }
 
 type Manager struct {
-	mu   sync.Mutex
-	dir  string
-	path string
-	jobs []*Job
-	last map[string]Report
+	mu         sync.Mutex
+	dir        string
+	path       string
+	reportPath string
+	jobs       []*Job
+	last       map[string]Report
+	onReport   func(Report)
 }
 
 func New(dir string) (*Manager, error) {
-	m := &Manager{dir: dir, path: filepath.Join(dir, "backup-jobs.json"), last: map[string]Report{}}
+	m := &Manager{dir: dir, path: filepath.Join(dir, "backup-jobs.json"), reportPath: filepath.Join(dir, "backup-reports.json"), last: map[string]Report{}}
 	if b, err := os.ReadFile(m.path); err == nil {
 		if err := json.Unmarshal(b, &m.jobs); err != nil {
 			return nil, fmt.Errorf("load backup jobs: %w", err)
@@ -69,8 +71,25 @@ func New(dir string) (*Manager, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
+	if b, err := os.ReadFile(m.reportPath); err == nil {
+		if err := json.Unmarshal(b, &m.last); err != nil {
+			return nil, fmt.Errorf("load backup reports: %w", err)
+		}
+		if m.last == nil {
+			m.last = map[string]Report{}
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("read backup reports: %w", err)
+	}
 	m.Start(context.Background())
 	return m, nil
+}
+
+// SetReportCallback registers a callback invoked after a terminal report is durable.
+func (m *Manager) SetReportCallback(callback func(Report)) {
+	m.mu.Lock()
+	m.onReport = callback
+	m.mu.Unlock()
 }
 
 // Restore восстанавливает файлы из локальной цели бэкапа в dest (с перезаписью).
@@ -251,6 +270,21 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
+func (m *Manager) saveReportsLocked() error {
+	if err := os.MkdirAll(m.dir, 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(m.last, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := m.reportPath + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, m.reportPath)
+}
+
 func (m *Manager) saveLocked() error {
 	if err := os.MkdirAll(m.dir, 0o755); err != nil {
 		return err
@@ -324,8 +358,19 @@ func (m *Manager) Run(ctx context.Context, id string) (Report, error) {
 	m.mu.Lock()
 	job.LastRun = rep.Finished
 	m.last[id] = rep
-	_ = m.saveLocked()
+	jobErr := m.saveLocked()
+	reportErr := m.saveReportsLocked()
+	callback := m.onReport
 	m.mu.Unlock()
+	if jobErr != nil {
+		return rep, fmt.Errorf("persist backup job: %w", jobErr)
+	}
+	if reportErr != nil {
+		return rep, fmt.Errorf("persist terminal backup report: %w", reportErr)
+	}
+	if callback != nil {
+		callback(rep)
+	}
 	return rep, nil
 }
 

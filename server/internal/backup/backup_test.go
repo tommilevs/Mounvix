@@ -13,6 +13,38 @@ import (
 	"time"
 )
 
+func TestBackupRunPersistsTerminalReportBeforeCallback(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := New(filepath.Join(dir, "data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := manager.Create("terminal", src, []Target{{Type: "local", Path: filepath.Join(dir, "dst")}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	manager.SetReportCallback(func(report Report) {
+		called = true
+		if _, err := os.Stat(filepath.Join(dir, "data", "backup-reports.json")); err != nil {
+			t.Errorf("callback ran before report persisted: %v", err)
+		}
+		if report.JobID != job.ID {
+			t.Errorf("callback report job=%q want=%q", report.JobID, job.ID)
+		}
+	})
+	if _, err := manager.Run(context.Background(), job.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("terminal report callback not called")
+	}
+}
+
 func TestLocalBackupAndIncremental(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
