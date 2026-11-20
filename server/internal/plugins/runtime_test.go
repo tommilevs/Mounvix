@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -167,6 +170,70 @@ func TestRuntimeCallHonorsDeadline(t *testing.T) {
 	}
 }
 
+func TestRuntimeCancellationForceKillsHungChildAfterGracePeriod(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix process signal lifecycle is covered by the Windows cross-build")
+	}
+	pluginRuntime := makeRuntimeTestFixture(t, "demo", "bin/plugin", 0o700, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	callDone := make(chan error, 1)
+	go func() {
+		_, err := pluginRuntime.Call(ctx, "demo", "plugin.invoke", json.RawMessage(`{"hang":true,"ignore_sigterm":true}`))
+		callDone <- err
+	}()
+
+	pidPath := filepath.Join(pluginRuntime.dataDir, "runtime-helper.pid")
+	poll := time.NewTicker(10 * time.Millisecond)
+	defer poll.Stop()
+	wait := time.NewTimer(3 * time.Second)
+	defer wait.Stop()
+	var pid int
+	for {
+		data, err := os.ReadFile(pidPath)
+		if err == nil {
+			pid, err = strconv.Atoi(string(data))
+			if err != nil {
+				cancel()
+				t.Fatalf("parse helper pid: %v", err)
+			}
+			break
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			cancel()
+			t.Fatalf("read helper pid: %v", err)
+		}
+		select {
+		case <-poll.C:
+		case <-wait.C:
+			cancel()
+			t.Fatal("runtime helper did not start before deadline")
+		}
+	}
+
+	cancelAt := time.Now()
+	cancel()
+	select {
+	case err := <-callDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Call() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(processGracePeriod + 2*time.Second):
+		t.Fatal("Call() did not finish after the process grace period")
+	}
+	if elapsed := time.Since(cancelAt); elapsed < processGracePeriod-250*time.Millisecond {
+		t.Fatalf("hung child terminated too early: %s", elapsed)
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Signal(syscall.Signal(0)); err == nil {
+		t.Fatalf("hung child process %d survived runtime cancellation", pid)
+	} else if !errors.Is(err, syscall.ESRCH) && !errors.Is(err, os.ErrProcessDone) {
+		t.Fatalf("probe child process %d: %v", pid, err)
+	}
+}
+
 func TestRuntimeRejectsExecutableTraversal(t *testing.T) {
 	pluginRuntime := makeRuntimeTestFixture(t, "demo", "../outside", 0o700, []byte("unused"))
 	if _, err := pluginRuntime.Call(context.Background(), "demo", "plugin.invoke", json.RawMessage(`{}`)); err == nil {
@@ -257,6 +324,13 @@ func TestRuntimeProcessHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	if args["hang"] {
+		if args["ignore_sigterm"] {
+			signal.Ignore(syscall.SIGTERM)
+		}
+		pidPath := filepath.Join(os.Getenv("MOUNVIX_DATA_DIR"), "runtime-helper.pid")
+		if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		select {}
 	}
 	if args["stdout"] {

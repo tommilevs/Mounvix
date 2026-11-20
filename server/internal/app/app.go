@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -20,19 +23,23 @@ import (
 
 // App — HTTP-приложение Mounvix (панель + WebDAV + API).
 type App struct {
-	cfgMu     sync.RWMutex
-	cfg       Config
-	cfgPath   string
-	store     *Store
-	mux       *http.ServeMux
-	tmpl      *template.Template
-	locks     webdav.LockSystem
-	shares    *share.Manager
-	backups   *backup.Manager
-	feeds     *feeds.Manager
-	regs      *RegStore
-	pluginReg *plugins.Registry
-	started   time.Time
+	cfgMu      sync.RWMutex
+	cfg        Config
+	cfgPath    string
+	store      *Store
+	mux        *http.ServeMux
+	tmpl       *template.Template
+	locks      webdav.LockSystem
+	shares     *share.Manager
+	backups    *backup.Manager
+	feeds      *feeds.Manager
+	regs       *RegStore
+	pluginReg  *plugins.Registry
+	jobStore   *plugins.JobStore
+	jobManager *plugins.JobManager
+	cancel     context.CancelFunc
+	background sync.WaitGroup
+	started    time.Time
 }
 
 func (a *App) configSnapshot() Config {
@@ -72,12 +79,87 @@ func New(cfg Config, cfgPath string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, feeds: feedManager, regs: rg, pluginReg: pl, started: time.Now(), locks: webdav.NewMemLS()}
+	appCtx, cancel := context.WithCancel(context.Background())
+	jobStore, err := plugins.NewJobStore(cfg.DataDir)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	runtime := plugins.NewRuntime(cfg.DataDir, pl)
+	jobManager, err := plugins.NewJobManager(jobStore,
+		func(ctx context.Context, job plugins.JobRecord) (string, error) {
+			var request struct {
+				Method string          `json:"method"`
+				Params json.RawMessage `json:"params"`
+			}
+			if err := json.Unmarshal(job.Payload, &request); err != nil {
+				return "", err
+			}
+			if request.Method != "plugin.runJob" {
+				return "", errors.New("unsupported plugin job method")
+			}
+			if _, err := runtime.Call(ctx, job.PluginID, request.Method, request.Params); err != nil {
+				return "plugin job failed", err
+			}
+			return "plugin job completed", nil
+		},
+		func(ctx context.Context, job plugins.JobRecord) (string, error) {
+			var request struct {
+				Src string `json:"src"`
+				Dst string `json:"dst"`
+			}
+			if err := json.Unmarshal(job.Payload, &request); err != nil {
+				return "", err
+			}
+			if _, err := pl.RcloneSync(ctx, request.Src, request.Dst); err != nil {
+				return "rclone job failed", err
+			}
+			return "rclone job completed", nil
+		},
+		func(context.Context, plugins.JobRecord) (string, error) {
+			return "", errors.New("package job executor is not configured")
+		},
+	)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	for _, p := range pl.List() {
+		if !p.Enabled {
+			if err := jobManager.DisablePlugin(context.Background(), p.ID); err != nil {
+				cancel()
+				return nil, err
+			}
+		}
+	}
+	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, feeds: feedManager, regs: rg, pluginReg: pl, jobStore: jobStore, jobManager: jobManager, cancel: cancel, started: time.Now(), locks: webdav.NewMemLS()}
+	if err := jobManager.Start(appCtx); err != nil {
+		cancel()
+		return nil, err
+	}
 	a.tmpl = mustTemplates(a)
 	a.mux = http.NewServeMux()
 	a.routes()
-	go a.runFeedScheduler(context.Background())
+	a.background.Add(2)
+	go func() { defer a.background.Done(); a.runFeedScheduler(appCtx) }()
+	go func() { defer a.background.Done(); a.runPluginScheduler(appCtx) }()
 	return a, nil
+}
+
+// Close stops background schedulers and cancels active child jobs.
+func (a *App) Close() error {
+	if a == nil {
+		return nil
+	}
+	if a.cancel != nil {
+		a.cancel()
+	}
+	var closeErr error
+	if a.jobManager != nil {
+		closeErr = a.jobManager.Close()
+	}
+	a.background.Wait()
+	return closeErr
 }
 
 func (a *App) runFeedScheduler(ctx context.Context) {
@@ -105,6 +187,66 @@ func (a *App) runFeedSchedulerOnce(ctx context.Context, now time.Time) error {
 		roots = append(roots, feeds.Root{Name: root.Name, Path: root.Path})
 	}
 	return a.feeds.RunDue(ctx, now, roots)
+}
+
+func (a *App) runPluginScheduler(ctx context.Context) {
+	if err := a.runPluginSchedulerOnce(ctx, time.Now()); err != nil {
+		log.Printf("mounvix plugins: scheduler run: %v", err)
+	}
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			if err := a.runPluginSchedulerOnce(ctx, now); err != nil {
+				log.Printf("mounvix plugins: scheduler run: %v", err)
+			}
+		}
+	}
+}
+
+func (a *App) runPluginSchedulerOnce(ctx context.Context, now time.Time) error {
+	if ctx == nil {
+		return errors.New("plugin scheduler context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	slotTime := now.UTC().Truncate(time.Minute)
+	slot := slotTime.Format(time.RFC3339)
+	var schedulerErr error
+	for _, plugin := range a.pluginReg.List() {
+		if !plugin.Enabled || !plugin.Available || plugin.Manifest == nil || !plugin.Manifest.Capabilities.Schedule {
+			continue
+		}
+		for _, job := range plugin.Manifest.Jobs {
+			schedule, err := plugins.ParseSchedule(job.Schedule)
+			if err != nil {
+				schedulerErr = errors.Join(schedulerErr, fmt.Errorf("plugin %s job %s schedule: %w", plugin.ID, job.ID, err))
+				continue
+			}
+			if !schedule.Matches(slotTime) {
+				continue
+			}
+			params, err := json.Marshal(map[string]string{"job_id": job.ID})
+			if err != nil {
+				schedulerErr = errors.Join(schedulerErr, fmt.Errorf("encode plugin %s job %s: %w", plugin.ID, job.ID, err))
+				continue
+			}
+			payload, err := json.Marshal(map[string]any{"method": "plugin.runJob", "params": params})
+			if err != nil {
+				schedulerErr = errors.Join(schedulerErr, fmt.Errorf("encode plugin %s job %s payload: %w", plugin.ID, job.ID, err))
+				continue
+			}
+			_, err = a.jobManager.Enqueue(ctx, plugins.JobRequest{ActorID: "system", Kind: "plugin", PluginID: plugin.ID, JobID: job.ID, Operation: "scheduled", ScheduledSlot: slot, Payload: payload})
+			if err != nil && !errors.Is(err, plugins.ErrDuplicateScheduleSlot) {
+				schedulerErr = errors.Join(schedulerErr, fmt.Errorf("enqueue plugin %s job %s: %w", plugin.ID, job.ID, err))
+			}
+		}
+	}
+	return schedulerErr
 }
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.mux.ServeHTTP(w, r) }

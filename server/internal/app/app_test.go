@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tommilevs/Mounvix/server/internal/plugins"
 )
@@ -195,7 +198,7 @@ func TestNewLoadsPackagesFromConfiguredPluginDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pkgDir, "bin", "demo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","api":1,"author":"test","description":"test plugin","executable":"bin/demo"}`
+	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","api":1,"author":"test","description":"test plugin","executable":"bin/demo","runtime_methods":["plugin.runJob"],"capabilities":{"schedule":true},"jobs":[{"id":"sync","schedule":"0 * * * *","timeout_seconds":300}]}`
 	if err := os.WriteFile(filepath.Join(pkgDir, "plugin.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -208,6 +211,42 @@ func TestNewLoadsPackagesFromConfiguredPluginDir(t *testing.T) {
 	}
 	if _, ok := a.pluginReg.LookupSource("demo", plugins.SourcePackage); !ok {
 		t.Fatal("configured package plugin root was not loaded")
+	}
+	if err := a.setPluginEnabled("demo", true); err != nil {
+		t.Fatal(err)
+	}
+	instant := time.Date(2026, 11, 20, 14, 0, 0, 0, time.UTC)
+	if err := a.runPluginSchedulerOnce(context.Background(), instant); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.runPluginSchedulerOnce(context.Background(), instant); err != nil {
+		t.Fatal(err)
+	}
+	page, err := a.jobStore.ListAfter(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].JobID != "sync" {
+		t.Fatalf("scheduled jobs = %#v", page.Items)
+	}
+	if err := a.setPluginEnabled("demo", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.jobManager.Enqueue(context.Background(), plugins.JobRequest{ActorID: "admin", Kind: "plugin", PluginID: "demo", JobID: "new"}); !errors.Is(err, plugins.ErrPluginJobsDisabled) {
+		t.Fatalf("enqueue for disabled plugin error = %v", err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAppShutdownClosesPluginJobManager(t *testing.T) {
+	a, _ := newTestApp(t)
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.jobManager.Enqueue(context.Background(), plugins.JobRequest{ActorID: "admin", Kind: "plugin", PluginID: "demo", JobID: "job"}); !errors.Is(err, plugins.ErrJobStoreClosed) {
+		t.Fatalf("enqueue after shutdown error = %v", err)
 	}
 }
 

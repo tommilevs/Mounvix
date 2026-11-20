@@ -224,21 +224,8 @@ func validateRelativePath(value string) error {
 }
 
 func validateSchedule(value string) error {
-	fields := strings.Fields(value)
-	if len(fields) != 5 {
-		return errors.New("schedule must contain five cron fields")
-	}
-	limits := [][2]int{{0, 59}, {0, 23}, {1, 31}, {1, 12}, {0, 6}}
-	for i, field := range fields {
-		if field == "*" {
-			continue
-		}
-		n, err := strconv.Atoi(field)
-		if err != nil || n < limits[i][0] || n > limits[i][1] {
-			return fmt.Errorf("invalid field %q", field)
-		}
-	}
-	return nil
+	_, err := ParseSchedule(value)
+	return err
 }
 
 func uniqueID(seen map[string]bool, id, kind string) error {

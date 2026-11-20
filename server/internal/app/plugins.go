@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -19,6 +20,17 @@ type pluginsView struct {
 	Rclone  plugins.RcloneStatus
 	Msg     string
 	Err     string
+}
+
+func (a *App) setPluginEnabled(id string, enabled bool) error {
+	if err := a.pluginReg.SetEnabled(id, enabled); err != nil {
+		return err
+	}
+	if enabled {
+		a.jobManager.EnablePlugin(id)
+		return nil
+	}
+	return a.jobManager.DisablePlugin(context.Background(), id)
 }
 
 func (a *App) handlePluginsPage(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +59,7 @@ func (a *App) handlePluginsPage(w http.ResponseWriter, r *http.Request) {
 		} else {
 			id := r.PostFormValue("id")
 			on := r.PostFormValue("enabled") == "1"
-			if err := a.pluginReg.SetEnabled(id, on); err != nil {
+			if err := a.setPluginEnabled(id, on); err != nil {
 				v.Err = err.Error()
 			} else {
 				v.Msg = "Плагин обновлён: " + id
@@ -101,7 +113,7 @@ func (a *App) handlePluginsAPI(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"ok": true, "output": out})
 			return
 		}
-		if err := a.pluginReg.SetEnabled(req.ID, req.Enabled); err != nil {
+		if err := a.setPluginEnabled(req.ID, req.Enabled); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
