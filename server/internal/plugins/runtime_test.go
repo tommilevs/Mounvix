@@ -82,6 +82,24 @@ func TestManifestValidateRuntimeMethods(t *testing.T) {
 	}
 }
 
+func TestRuntimeCallWithRunIDWritesJobScopedLog(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix socket integration is covered by the Windows cross-build")
+	}
+	pluginRuntime := makeRuntimeTestFixture(t, "demo", "bin/plugin", 0o700, nil)
+	const runID = "run-abcdef0123456789"
+	if _, err := pluginRuntime.CallWithRunID(context.Background(), "demo", "plugin.runJob", json.RawMessage(`{"small_log":true}`), runID); err != nil {
+		t.Fatalf("CallWithRunID(): %v", err)
+	}
+	contents, err := NewLogStore(pluginRuntime.dataDir).ReadRun("plugins", "demo", runID)
+	if err != nil {
+		t.Fatalf("ReadRun(%q): %v", runID, err)
+	}
+	if !strings.Contains(string(contents), "plugin runtime output") {
+		t.Fatalf("job-scoped log = %q", contents)
+	}
+}
+
 func TestRuntimeOneShotProcessLifecycle(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix socket integration is covered by the Windows cross-build")
@@ -332,6 +350,11 @@ func TestRuntimeProcessHelper(t *testing.T) {
 			t.Fatal(err)
 		}
 		select {}
+	}
+	if args["small_log"] {
+		if _, err := fmt.Fprintln(os.Stdout, "plugin runtime output"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if args["stdout"] {
 		if _, err := fmt.Print(strings.Repeat("o", maxRunLogBytes+1)); err != nil {

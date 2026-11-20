@@ -13,7 +13,7 @@ func stringsRU() map[string]string {
 	return map[string]string{
 		"login": "Вход", "username": "Логин", "password": "Пароль", "signin": "Войти",
 		"nav_overview": "Обзор", "nav_folders": "Доступ к папкам", "nav_users": "Пользователи",
-		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_regs": "Заявки", "nav_plugins": "Плагины", "nav_ai": "AI", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
+		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_regs": "Заявки", "nav_plugins": "Плагины", "nav_notifications": "Уведомления", "nav_ai": "AI", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
 		"overview": "Обзор", "version": "Версия", "uptime": "Аптайм", "roots": "Папки",
 		"users": "Пользователи", "sessions": "Сессии", "audit": "Аудит",
 		"folders": "Доступ к папкам", "name": "Имя", "path": "Путь", "readonly": "Только чтение",
@@ -37,7 +37,7 @@ func stringsEN() map[string]string {
 	return map[string]string{
 		"login": "Login", "username": "Username", "password": "Password", "signin": "Sign in",
 		"nav_overview": "Overview", "nav_folders": "Folders access", "nav_users": "Users",
-		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_regs": "Requests", "nav_plugins": "Plugins", "nav_ai": "AI", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
+		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_regs": "Requests", "nav_plugins": "Plugins", "nav_notifications": "Notifications", "nav_ai": "AI", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
 		"overview": "Overview", "version": "Version", "uptime": "Uptime", "roots": "Folders",
 		"users": "Users", "sessions": "Sessions", "audit": "Audit",
 		"folders": "Folders access", "name": "Name", "path": "Path", "readonly": "Read-only",
@@ -290,6 +290,16 @@ func mustTemplates(a *App) *template.Template {
 		"hasInt":    hasInt,
 		"hasString": hasString,
 		"join":      strings.Join,
+		"unreadCount": func(user *User) int {
+			if user == nil || a.notifications == nil {
+				return 0
+			}
+			page, err := a.notifications.ListPage(user.Name, nil, nil, 1)
+			if err != nil {
+				return 0
+			}
+			return page.UnreadCount
+		},
 		"fmtTime": func(t time.Time) string {
 			return t.Format("02.01 15:04:05")
 		},
@@ -317,7 +327,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 </div>
 <nav class="primary-nav" id="primary-nav" aria-label="{{T "nav_label"}}">
 <a class="nav-link" data-nav-link href="{{route "/"}}">{{T "nav_overview"}}</a><a class="nav-link" data-nav-link href="{{route "/folders"}}">{{T "nav_folders"}}</a><a class="nav-link" data-nav-link href="{{route "/users"}}">{{T "nav_users"}}</a>
-<a class="nav-link" data-nav-link href="{{route "/shares"}}">{{T "nav_shares"}}</a><a class="nav-link" data-nav-link href="{{route "/media"}}">{{T "nav_media"}}</a><a class="nav-link" data-nav-link href="{{route "/backup"}}">{{T "nav_backup"}}</a><a class="nav-link" data-nav-link href="{{route "/registrations"}}">{{T "nav_regs"}}</a><a class="nav-link" data-nav-link href="{{route "/plugins"}}">{{T "nav_plugins"}}</a><a class="nav-link" data-nav-link href="{{route "/ai"}}">{{T "nav_ai"}}</a><a class="nav-link" data-nav-link href="{{route "/settings"}}">{{T "nav_settings"}}</a><a class="nav-link" data-nav-link href="{{route "/logs"}}">{{T "nav_logs"}}</a><a class="nav-link" data-nav-link href="{{route "/stats"}}">{{T "nav_stats"}}</a>
+<a class="nav-link" data-nav-link href="{{route "/shares"}}">{{T "nav_shares"}}</a><a class="nav-link" data-nav-link href="{{route "/media"}}">{{T "nav_media"}}</a><a class="nav-link" data-nav-link href="{{route "/backup"}}">{{T "nav_backup"}}</a><a class="nav-link" data-nav-link href="{{route "/registrations"}}">{{T "nav_regs"}}</a>{{if .User.IsAdmin}}<a class="nav-link" data-nav-link href="{{route "/plugins"}}">{{T "nav_plugins"}}</a><a class="nav-link" data-nav-link href="{{route "/notifications"}}" data-notifications-api="{{route "/api/v1/notifications"}}" data-notifications-ws="{{route "/api/v1/notifications/ws"}}">{{T "nav_notifications"}}{{if gt (unreadCount .User) 0}} <span class="unread-badge" aria-label="{{unreadCount .User}} unread">{{unreadCount .User}}</span>{{end}}</a>{{end}}<a class="nav-link" data-nav-link href="{{route "/ai"}}">{{T "nav_ai"}}</a><a class="nav-link" data-nav-link href="{{route "/settings"}}">{{T "nav_settings"}}</a><a class="nav-link" data-nav-link href="{{route "/logs"}}">{{T "nav_logs"}}</a><a class="nav-link" data-nav-link href="{{route "/stats"}}">{{T "nav_stats"}}</a>
 </nav>
 <div class="sidebar-footer"><form method="post" action="{{route "/logout"}}"><button>{{T "logout"}}</button></form></div>
 </aside>{{end}}
@@ -328,7 +338,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 </header>
 <main id="main-content" tabindex="-1">
 {{end}}
-{{define "foot.html"}}</main><footer class="site-footer">Mounvix {{.Version}}</footer></div></div></body></html>{{end}}
+{{define "foot.html"}}</main><footer class="site-footer">Mounvix {{.Version}}</footer></div></div>{{if and .User .User.IsAdmin}}<script src="{{route "/notifications.js"}}" defer></script>{{end}}</body></html>{{end}}
 
 {{define "dashboard.html"}}{{template "head.html" .}}
 <h1>{{T "overview"}}</h1>
@@ -528,22 +538,54 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 {{template "foot.html" .}}{{end}}
 
 {{define "plugins.html"}}{{template "head.html" .}}
-<h1>Плагины</h1>
-{{if .Msg}}<p>{{.Msg}}</p>{{end}}
+<h1>Плагины и задания</h1>
+{{if .Msg}}<p class="status-note">{{.Msg}}</p>{{end}}
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
-<div class="table-wrap"><table><tr><th>Плагин</th><th>Версия</th><th>Тип</th><th>Доступен</th><th>Включён</th><th></th></tr>
-{{range .Plugins}}<tr><td>{{.Name}}<br><span class="muted">{{.Description}}</span></td><td>{{.Version}}</td><td>{{.Kind}}</td>
+<section class="card" aria-labelledby="catalog-heading">
+<h2 id="catalog-heading">Каталог плагинов</h2>
+{{if .Catalog.ReadOnly}}<p class="status-note">Каталог только для чтения: {{.Catalog.Reason}}</p>{{else}}<p>Каталог доступен.</p>{{end}}
+<p>Пакеты принимаются только из подписанного каталога. Произвольные URL установки отсутствуют.</p>
+<p class="warning-note">Пакетные плагины выполняются с полномочиями процесса Mounvix и не являются изолированной песочницей. Учитывайте объявленные издателем возможности до установки.</p>
+<div id="plugin-installations" data-api-url="{{route "/api/v1/plugin-installations"}}" data-source-api="{{route "/api/v1/plugins"}}" aria-live="polite"><p class="muted">Загрузка установленных пакетов…</p></div>
+</section>
+<section class="card" aria-labelledby="installed-heading">
+<h2 id="installed-heading">Источники и включение</h2>
+<div class="table-wrap"><table><tr><th>Плагин</th><th>Версия</th><th>Источник</th><th>Доступен</th><th>Включён</th><th>Действие</th></tr>
+{{range .Plugins}}<tr><td>{{.Name}}<br><span class="muted">{{.Description}}</span></td><td>{{.Version}}</td><td>{{.Source}}</td>
 <td>{{if .Available}}да{{else}}нет{{end}}</td><td>{{if .Enabled}}да{{else}}нет{{end}}</td>
 <td>{{if .Available}}<form method="post" action="{{route "/plugins"}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}"><button>{{if .Enabled}}Выключить{{else}}Включить{{end}}</button></form>{{end}}</td></tr>{{end}}</table></div>
-<h2>rclone</h2>
+</section>
+<section class="card" aria-labelledby="pages-heading"><h2 id="pages-heading">Страницы плагинов</h2>
+{{range .PageLinks}}<div class="plugin-page-card"><h3>{{.PluginName}} · {{.PageName}}</h3><iframe class="plugin-page-frame" title="{{.PluginName}} — {{.PageName}}" src="{{.URL}}" sandbox loading="lazy" referrerpolicy="no-referrer"></iframe></div>{{else}}<p class="muted">У включённых пакетных плагинов нет статических страниц.</p>{{end}}
+</section>
+<section class="card" aria-labelledby="jobs-heading"><h2 id="jobs-heading">Журнал заданий</h2>
+<div id="plugin-jobs" data-api-url="{{route "/api/v1/jobs"}}" aria-live="polite"><p class="muted">Загрузка последних заданий…</p></div>
+</section>
+<section class="card" aria-labelledby="rclone-heading"><h2 id="rclone-heading">rclone</h2>
 {{if .Rclone.Installed}}
 <p>Версия: {{.Rclone.Version}}</p>
-<p>Хранилища: {{range .Rclone.Remotes}}{{.}} {{else}}нет{{end}}</p>
-<form method="post" action="{{route "/plugins"}}" class="row"><input type="hidden" name="action" value="rclone_sync"><input name="src" placeholder="источник (local или remote:путь)" style="min-width:220px"><input name="dst" placeholder="назначение" style="min-width:220px"><button>rclone sync</button></form>
-{{else}}
-<p class="muted">rclone не установлен. Установите: <code>opkg install rclone</code> (Entware) или <code>apt install rclone</code>.</p>
-{{end}}
-<p class="muted">Манифесты плагинов — <code>data/plugins/*.json</code>.</p>
+{{if .RcloneSourceConfigured}}
+<form id="rclone-sync-form" class="row" data-api-url="{{route "/api/v1/rclone-jobs"}}">
+<label>Источник в разрешённом корне <input name="source_path" required placeholder="папка/файлы"></label>
+<label>Удалённое хранилище <select name="remote_name" required data-remotes-url="{{route "/api/v1/rclone-remotes"}}"><option value="">Загрузка списка…</option></select></label>
+<label>Путь назначения <input name="destination_path" required placeholder="backup/папка"></label>
+<label><input type="checkbox" name="confirmed" required> Я подтверждаю направление синхронизации и возможное удаление файлов на стороне назначения</label>
+<button type="submit">Запустить синхронизацию</button><p class="muted" data-form-status role="status"></p></form>
+{{else}}<p class="warning-note">Разрешённый корень источника rclone не настроен; синхронизация отключена. Произвольные локальные пути не принимаются.</p>{{end}}
+{{else}}<p class="muted">rclone не установлен; встроенная синхронизация недоступна.</p>{{end}}
+</section>
+<script src="{{route "/plugins.js"}}" defer></script>
+{{template "foot.html" .}}{{end}}
+
+{{define "notifications.html"}}{{template "head.html" .}}
+<h1>Уведомления</h1>
+{{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+<div id="notifications" data-api-url="{{route "/api/v1/notifications"}}" data-ws-url="{{route "/api/v1/notifications/ws"}}" data-latest-seq="{{.LatestSeq}}" data-oldest-seq="{{.OldestSeq}}" data-reset="{{.Reset}}" aria-live="polite">
+{{if .Reset}}<p class="status-note">Часть старой истории больше не хранится; ниже показаны доступные события.</p>{{end}}
+<p>Непрочитано: <strong id="notification-unread-count">{{.UnreadCount}}</strong></p>
+<ol id="notification-list">{{range .Events}}<li class="notification-item" data-event-id="{{.EventID}}" data-seq="{{.Seq}}"><span>{{.Summary}}</span> <time>{{fmtTime .CreatedAt}}</time> <a href="{{.TargetRoute}}">Открыть</a> {{if not .IsRead}}<button type="button" data-read-event="{{.EventID}}">Отметить прочитанным</button>{{end}}</li>{{else}}<li class="muted" data-empty-state>Новых уведомлений пока нет.</li>{{end}}</ol>
+<button id="notification-load-older" type="button">Загрузить более старые</button><p id="notification-status" role="status"></p>
+</div>
 {{template "foot.html" .}}{{end}}
 
 {{define "ai.html"}}{{template "head.html" .}}

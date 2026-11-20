@@ -85,6 +85,75 @@ func TestRcloneAdapterUsesFixedArgvAndBoundsOutput(t *testing.T) {
 	}
 }
 
+func TestRcloneAdapterWritesJobScopedLogs(t *testing.T) {
+	bin := t.TempDir()
+	rclone := filepath.Join(bin, "rclone")
+	if err := os.WriteFile(rclone, []byte("#!/bin/sh\nprintf 'rclone job output\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "src"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	logs := NewLogStore(t.TempDir())
+	adapter := RcloneAdapter{
+		SourceRoot: root, LookPath: func(string) (string, error) { return rclone, nil },
+		ListRemotesFunc: func(context.Context) ([]string, error) { return []string{"known"}, nil },
+		LogStore:        logs,
+	}
+	const runID = "run-abcdef0123456789"
+	if _, err := adapter.RunSyncWithRunID(context.Background(), RcloneJobRequest{SourcePath: "src", RemoteName: "known", DestinationPath: "archive", Confirmed: true}, runID); err != nil {
+		t.Fatalf("RunSyncWithRunID(): %v", err)
+	}
+	contents, err := logs.ReadRun("rclone", "rclone", runID)
+	if err != nil {
+		t.Fatalf("ReadRun(%q): %v", runID, err)
+	}
+	if !strings.Contains(string(contents), "rclone job output") {
+		t.Fatalf("rclone job log = %q", contents)
+	}
+}
+
+func TestRcloneSyncWaitsForSharedProcessGate(t *testing.T) {
+	bin := t.TempDir()
+	rclone := filepath.Join(bin, "rclone")
+	if err := os.WriteFile(rclone, []byte("#!/bin/sh\nprintf ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "src"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	adapter := RcloneAdapter{
+		SourceRoot: root, LookPath: func(string) (string, error) { return rclone, nil },
+		ListRemotesFunc: func(context.Context) ([]string, error) { return []string{"known"}, nil },
+	}
+	release, err := SharedProcessGate().Acquire(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, runErr := adapter.RunSync(context.Background(), RcloneJobRequest{SourcePath: "src", RemoteName: "known", DestinationPath: "archive", Confirmed: true})
+		done <- runErr
+	}()
+	select {
+	case err := <-done:
+		release()
+		t.Fatalf("RunSync returned before gate release: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunSync after gate release: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("RunSync did not resume after gate release")
+	}
+}
+
 func TestRcloneAdapterHonorsCallerTimeout(t *testing.T) {
 	bin := t.TempDir()
 	rclone := filepath.Join(bin, "rclone")

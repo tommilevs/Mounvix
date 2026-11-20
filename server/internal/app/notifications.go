@@ -9,8 +9,58 @@ import (
 	"time"
 
 	"github.com/tommilevs/Mounvix/server/internal/plugins"
+	"github.com/tommilevs/Mounvix/server/internal/version"
 	"golang.org/x/net/websocket"
 )
+
+type notificationsView struct {
+	Title       string
+	Lang        string
+	Version     string
+	User        *User
+	Events      []plugins.NotificationEvent
+	UnreadCount int
+	OldestSeq   int64
+	LatestSeq   int64
+	Reset       bool
+	Err         string
+}
+
+func (a *App) handleNotificationsPage(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.cookieUser(r)
+	if !ok {
+		http.Redirect(w, r, a.routePath("/login"), http.StatusSeeOther)
+		return
+	}
+	if !user.IsAdmin() {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	cfg := a.configSnapshot()
+	view := &notificationsView{Title: "Уведомления", Lang: cfg.Lang, Version: version.Version, User: user, Events: []plugins.NotificationEvent{}}
+	if a.notifications == nil {
+		view.Err = "История уведомлений временно недоступна; сохранённые данные оставлены для диагностики."
+	} else {
+		page, err := a.notifications.ListPage(user.Name, nil, nil, 50)
+		if err != nil {
+			view.Err = "История уведомлений временно недоступна; сохранённые данные оставлены для диагностики."
+		} else {
+			view.Events = page.Items
+			view.UnreadCount = page.UnreadCount
+			view.OldestSeq = page.OldestSeq
+			if len(page.Items) > 0 {
+				view.OldestSeq = page.Items[len(page.Items)-1].Seq
+			}
+			view.LatestSeq = page.LatestSeq
+			view.Reset = page.Reset
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := a.tmpl.ExecuteTemplate(w, "notifications.html", view); err != nil {
+		http.Error(w, "template error", http.StatusInternalServerError)
+	}
+}
 
 type notificationAPIItem struct {
 	EventID     string    `json:"event_id"`

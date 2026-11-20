@@ -527,7 +527,7 @@ type JobManager struct {
 	active    map[string]context.CancelFunc
 	pending   map[string]struct{}
 	disabled  map[string]bool
-	onIntent  func(JobRecord)
+	onIntent  func(JobRecord) error
 	onOutcome func(JobRecord)
 }
 
@@ -540,7 +540,7 @@ func NewJobManager(store *JobStore, plugin, rclone, packageJob JobExecutor) (*Jo
 }
 
 // SetIntentRecorder registers a callback invoked before a queued job becomes executable.
-func (m *JobManager) SetIntentRecorder(recorder func(JobRecord)) {
+func (m *JobManager) SetIntentRecorder(recorder func(JobRecord) error) {
 	m.mu.Lock()
 	m.onIntent = recorder
 	m.mu.Unlock()
@@ -582,12 +582,17 @@ func (m *JobManager) Start(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.started = true
 	for _, r := range m.store.queuedRecords() {
+		if m.onIntent != nil {
+			if err := m.onIntent(r); err != nil {
+				if cancelErr := m.store.Cancel(context.Background(), r.RunID); cancelErr != nil {
+					return errors.Join(fmt.Errorf("record restored job intent: %w", err), cancelErr)
+				}
+				continue
+			}
+		}
 		select {
 		case m.queue <- r:
 			m.pending[r.RunID] = struct{}{}
-			if m.onIntent != nil {
-				m.onIntent(r)
-			}
 		default:
 			return ErrJobQueueFull
 		}
@@ -595,6 +600,21 @@ func (m *JobManager) Start(ctx context.Context) error {
 	m.worker.Add(1)
 	go m.run()
 	return nil
+}
+
+// FindIdempotency returns a prior durable job for the same actor and request key without enqueueing work.
+func (m *JobManager) FindIdempotency(ctx context.Context, request JobRequest) (JobRecord, bool, error) {
+	if ctx == nil {
+		return JobRecord{}, false, errors.New("job context is required")
+	}
+	request, err := normalizeJobRequest(request)
+	if err != nil {
+		return JobRecord{}, false, err
+	}
+	if _, _, err := jobRequestDigests(request); err != nil {
+		return JobRecord{}, false, err
+	}
+	return m.store.findIdempotency(ctx, request)
 }
 
 // Enqueue persists and schedules a job, rejecting overflow deterministically.
@@ -665,7 +685,12 @@ func (m *JobManager) Enqueue(ctx context.Context, request JobRequest) (JobRecord
 		return JobRecord{}, os.ErrNotExist
 	}
 	if m.onIntent != nil {
-		m.onIntent(queued)
+		if err := m.onIntent(queued); err != nil {
+			if cancelErr := m.store.Cancel(context.Background(), r.RunID); cancelErr != nil {
+				return JobRecord{}, errors.Join(fmt.Errorf("record job intent: %w", err), cancelErr)
+			}
+			return JobRecord{}, fmt.Errorf("record job intent: %w", err)
+		}
 	}
 	m.queue <- queued
 	m.pending[r.RunID] = struct{}{}
@@ -753,6 +778,74 @@ func (m *JobManager) cancelQueued() {
 	}
 }
 
+// Cancel stops one queued or active durable job and waits for active work to reach a terminal state.
+func (m *JobManager) Cancel(ctx context.Context, runID string) error {
+	if ctx == nil {
+		return errors.New("job manager context is required")
+	}
+	if runID == "" {
+		return errors.New("job run id is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	record, exists := m.store.record(runID)
+	if !exists {
+		m.mu.Unlock()
+		return os.ErrNotExist
+	}
+	if terminalJobStatus(record.Status) {
+		m.mu.Unlock()
+		return nil
+	}
+	if cancel := m.active[runID]; cancel != nil {
+		cancel()
+		m.mu.Unlock()
+		return m.waitForCancellation(ctx, runID)
+	}
+	if _, pending := m.pending[runID]; pending {
+		if err := m.store.Cancel(ctx, runID); err != nil {
+			m.mu.Unlock()
+			return fmt.Errorf("cancel queued job: %w", err)
+		}
+		delete(m.pending, runID)
+		m.mu.Unlock()
+		m.publishOutcome(runID)
+		return nil
+	}
+	if err := m.store.Cancel(ctx, runID); err != nil {
+		m.mu.Unlock()
+		return fmt.Errorf("cancel job: %w", err)
+	}
+	m.mu.Unlock()
+	m.publishOutcome(runID)
+	return nil
+}
+
+func (m *JobManager) waitForCancellation(ctx context.Context, runID string) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(processGracePeriod + time.Second)
+	defer timer.Stop()
+	for {
+		record, exists := m.store.record(runID)
+		if !exists {
+			return os.ErrNotExist
+		}
+		if terminalJobStatus(record.Status) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return errors.New("job did not stop within the cancellation window")
+		case <-ticker.C:
+		}
+	}
+}
+
 // DisablePlugin prevents queued work from running and cancels the active plugin child.
 func (m *JobManager) DisablePlugin(ctx context.Context, pluginID string) error {
 	if ctx == nil {
@@ -763,31 +856,27 @@ func (m *JobManager) DisablePlugin(ctx context.Context, pluginID string) error {
 	}
 	m.mu.Lock()
 	m.disabled[pluginID] = true
+	activeRuns := make([]string, 0, len(m.active))
 	for runID, cancel := range m.active {
-		if record, ok := m.store.record(runID); ok && record.PluginID == pluginID {
+		if record, ok := m.store.record(runID); ok && record.Kind == "plugin" && record.PluginID == pluginID {
 			cancel()
+			activeRuns = append(activeRuns, runID)
 		}
 	}
 	queue := make([]JobRecord, 0, len(m.queue))
 	cancelled := make([]string, 0)
+	var result error
 	for {
 		select {
 		case r := <-m.queue:
 			delete(m.pending, r.RunID)
-			if r.PluginID == pluginID {
+			if r.Kind == "plugin" && r.PluginID == pluginID {
 				if err := m.store.Cancel(ctx, r.RunID); err != nil {
 					queue = append(queue, r)
-					for _, queued := range queue {
-						m.queue <- queued
-						m.pending[queued.RunID] = struct{}{}
-					}
-					m.mu.Unlock()
-					for _, runID := range cancelled {
-						m.publishOutcome(runID)
-					}
-					return err
+					result = errors.Join(result, fmt.Errorf("cancel queued plugin job %s: %w", r.RunID, err))
+				} else {
+					cancelled = append(cancelled, r.RunID)
 				}
-				cancelled = append(cancelled, r.RunID)
 			} else {
 				queue = append(queue, r)
 			}
@@ -800,7 +889,12 @@ func (m *JobManager) DisablePlugin(ctx context.Context, pluginID string) error {
 			for _, runID := range cancelled {
 				m.publishOutcome(runID)
 			}
-			return nil
+			for _, runID := range activeRuns {
+				if err := m.waitForCancellation(ctx, runID); err != nil {
+					result = errors.Join(result, fmt.Errorf("wait for plugin job %s to stop: %w", runID, err))
+				}
+			}
+			return result
 		}
 	}
 }

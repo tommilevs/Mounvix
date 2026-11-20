@@ -427,12 +427,14 @@ type PackageInstaller struct {
 	runner           CommandRunner
 	metadata         PackageMetadataReader
 	mutationsEnabled bool
+	removalEnabled   bool
 }
 
 // NewPackageInstaller selects the only supported package manager for the exact config path.
 func NewPackageInstaller(configPath string) *PackageInstaller {
 	installer := newPackageInstaller(configPath, execCommandRunner{}, systemPackageMetadataReader{})
 	installer.mutationsEnabled = !DefaultCatalogStatus().ReadOnly
+	installer.removalEnabled = installer.managerPath != ""
 	return installer
 }
 
@@ -446,6 +448,7 @@ func newPackageInstaller(configPath string, runner CommandRunner, metadata Packa
 		installer.managerPath = "/usr/bin/dpkg"
 		installer.format = "deb"
 	}
+	installer.removalEnabled = installer.managerPath != ""
 	return installer
 }
 
@@ -507,9 +510,14 @@ func (installer *PackageInstaller) Install(ctx context.Context, verifiedID strin
 	return nil
 }
 
+// CanRemove reports whether one validated package ID can be removed on this platform.
+func (installer *PackageInstaller) CanRemove() bool {
+	return installer != nil && installer.removalEnabled && installer.managerPath != "" && installer.runner != nil
+}
+
 // Remove removes one validated package ID using only the platform's fixed manager command.
 func (installer *PackageInstaller) Remove(ctx context.Context, verifiedID string) error {
-	if installer == nil || !installer.mutationsEnabled || installer.managerPath == "" || installer.runner == nil {
+	if installer == nil || !installer.removalEnabled || installer.managerPath == "" || installer.runner == nil {
 		return errors.New("package mutations are disabled for this platform")
 	}
 	if ctx == nil {

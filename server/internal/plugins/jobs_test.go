@@ -122,7 +122,7 @@ func TestJobStoreFinishRedactsSummarySecrets(t *testing.T) {
 	if err := store.MarkRunning(ctx, run.RunID); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Finish(ctx, run.RunID, "success", "Authorization: Bearer top-secret, token: scoped-secret"); err != nil {
+	if err := store.Finish(ctx, run.RunID, "success", "Authorization: Bearer top-secret, token: scoped-secret; read /var/lib/mounvix/private.db C:\\ProgramData\\Mounvix\\private.log"); err != nil {
 		t.Fatal(err)
 	}
 	page, err := store.ListAfter(ctx, 0, 10)
@@ -133,7 +133,7 @@ func TestJobStoreFinishRedactsSummarySecrets(t *testing.T) {
 		t.Fatalf("listed jobs = %d, want 1", len(page.Items))
 	}
 	summary := page.Items[0].Summary
-	if strings.Contains(summary, "top-secret") || strings.Contains(summary, "scoped-secret") || !strings.Contains(summary, "[REDACTED]") {
+	if strings.Contains(summary, "top-secret") || strings.Contains(summary, "scoped-secret") || strings.Contains(summary, "/var/lib/mounvix") || strings.Contains(summary, `C:\\ProgramData`) || !strings.Contains(summary, "[REDACTED]") {
 		t.Fatalf("job summary was not safely redacted: %q", summary)
 	}
 }
@@ -367,6 +367,113 @@ func TestJobManagerDoesNotQueueDuplicateIdempotentRequests(t *testing.T) {
 	}
 }
 
+func TestJobManagerCancelStopsOneActiveJobAndIsIdempotent(t *testing.T) {
+	store, err := NewJobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{}, 1)
+	manager, err := NewJobManager(store, func(ctx context.Context, _ JobRecord) (string, error) {
+		started <- struct{}{}
+		<-ctx.Done()
+		return "", ctx.Err()
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	job, err := manager.Enqueue(context.Background(), JobRequest{ActorID: "admin", Kind: "plugin", PluginID: "demo", JobID: "work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("plugin job did not start")
+	}
+	if err := manager.Cancel(context.Background(), job.RunID); err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	if err := manager.Cancel(context.Background(), job.RunID); err != nil {
+		t.Fatalf("repeated Cancel() error = %v", err)
+	}
+	page, err := store.ListAfter(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].RunID != job.RunID || page.Items[0].Status != JobStatusCancelled {
+		t.Fatalf("cancelled job state = %#v", page.Items)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestJobManagerDisableWaitsForActiveRunToBecomeTerminal(t *testing.T) {
+	store, err := NewJobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{}, 1)
+	canceled := make(chan struct{})
+	finish := make(chan struct{})
+	manager, err := NewJobManager(store, func(ctx context.Context, _ JobRecord) (string, error) {
+		started <- struct{}{}
+		<-ctx.Done()
+		close(canceled)
+		<-finish
+		return "", ctx.Err()
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	job, err := manager.Enqueue(context.Background(), JobRequest{ActorID: "admin", Kind: "plugin", PluginID: "demo", JobID: "active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("plugin job did not start")
+	}
+	disabled := make(chan error, 1)
+	go func() { disabled <- manager.DisablePlugin(context.Background(), "demo") }()
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("active plugin job did not observe cancellation")
+	}
+	select {
+	case err := <-disabled:
+		t.Fatalf("DisablePlugin returned before the active run stopped: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(finish)
+	select {
+	case err := <-disabled:
+		if err != nil {
+			t.Fatalf("DisablePlugin() error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("DisablePlugin did not return after active run stopped")
+	}
+	page, err := store.ListAfter(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].RunID != job.RunID || page.Items[0].Status != JobStatusCancelled {
+		t.Fatalf("job state after disable = %#v", page.Items)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestJobManagerDisableCancelsActiveAndBlocksNewPluginJobs(t *testing.T) {
 	store, err := NewJobStore(t.TempDir())
 	if err != nil {
@@ -586,6 +693,43 @@ func TestJobManagerCloseWaitsForRuntimeForcedKillAndTerminalState(t *testing.T) 
 	}
 }
 
+func TestJobManagerDoesNotExecuteWhenIntentRecordingFails(t *testing.T) {
+	store, err := NewJobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	executed := make(chan struct{}, 1)
+	manager, err := NewJobManager(store, func(context.Context, JobRecord) (string, error) {
+		executed <- struct{}{}
+		return "done", nil
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.SetIntentRecorder(func(JobRecord) error { return errors.New("audit store unavailable") })
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Enqueue(context.Background(), JobRequest{ActorID: "admin", Kind: "plugin", PluginID: "demo", JobID: "work"}); err == nil {
+		t.Fatal("Enqueue succeeded without a durable audit intent")
+	}
+	select {
+	case <-executed:
+		t.Fatal("job executed after audit intent failure")
+	default:
+	}
+	page, err := store.ListAfter(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || page.Items[0].Status != JobStatusCancelled {
+		t.Fatalf("job state after audit failure = %#v, want one cancelled record", page.Items)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestJobManagerRecordsIntentForRestoredQueuedJob(t *testing.T) {
 	store, err := NewJobStore(t.TempDir())
 	if err != nil {
@@ -600,7 +744,7 @@ func TestJobManagerRecordsIntentForRestoredQueuedJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	intent := make(chan JobRecord, 1)
-	manager.SetIntentRecorder(func(record JobRecord) { intent <- record })
+	manager.SetIntentRecorder(func(record JobRecord) error { intent <- record; return nil })
 	if err := manager.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -630,8 +774,9 @@ func TestJobManagerPublishesTerminalRecordAfterDurableSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager.SetIntentRecorder(func(JobRecord) {
+	manager.SetIntentRecorder(func(JobRecord) error {
 		events <- "intent"
+		return nil
 	})
 	manager.SetOutcomePublisher(func(record JobRecord) {
 		data, err := os.ReadFile(store.path)

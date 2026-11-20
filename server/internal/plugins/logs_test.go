@@ -38,6 +38,26 @@ func TestLogStoreBoundsAndContainsRunLogs(t *testing.T) {
 	}
 }
 
+func TestLogStoreRedactsAbsoluteFilesystemPaths(t *testing.T) {
+	store := NewLogStore(t.TempDir())
+	payload := []byte(`source=/var/lib/mounvix/private.db destination=C:\ProgramData\Mounvix\private.log open(/var/log/mounvix/error.log) CreateFile(C:\Windows\Temp\mounvix.log)`)
+	if err := store.WriteRun("rclone", "rclone", "run-0123456789abcdef", payload); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ReadRun("rclone", "rclone", "run-0123456789abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/var/lib/mounvix/private.db", `C:\ProgramData\Mounvix\private.log`, "/var/log/mounvix/error.log", `C:\Windows\Temp\mounvix.log`} {
+		if strings.Contains(string(got), path) {
+			t.Fatalf("absolute path leaked from run log: %q", got)
+		}
+	}
+	if !strings.Contains(string(got), "[LOCAL PATH]") {
+		t.Fatalf("redacted log lacks path marker: %q", got)
+	}
+}
+
 func TestLogStoreRedactsStructuredAndAuthorizationSecrets(t *testing.T) {
 	store := NewLogStore(t.TempDir())
 	structured := []byte(`{"access_token":"long-secret-token","nested":{"password":"two words"},"authorization":"Bearer bearer-secret"}`)

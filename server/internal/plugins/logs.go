@@ -25,6 +25,11 @@ var (
 	authorizationSecretPattern = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*)(?:"(?:bearer|basic)\s+(?:\\.|[^"\\])*"|'(?:bearer|basic)\s+(?:\\.|[^'\\])*'|(?:bearer|basic)\s+[^\s,;]+|"[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|[^\s,;]+)`)
 )
 
+var (
+	unixAbsolutePathPattern    = regexp.MustCompile(`(^|[\s"'=(])(/[^\s"'<>|?*]+)`)
+	windowsAbsolutePathPattern = regexp.MustCompile(`(?i)(^|[\s"'=:(])([a-z]:\\[^\s"'<>|?*]*)`)
+)
+
 // LogStore stores bounded, redacted output for generated run identifiers.
 type LogStore struct {
 	root string
@@ -36,7 +41,7 @@ func NewLogStore(dataDir string) *LogStore { return &LogStore{root: dataDir} }
 
 func redactKnownSecrets(output []byte) []byte {
 	if redacted, ok := redactJSONLine(output); ok {
-		return redacted
+		return redactLocalPaths(redacted)
 	}
 	lines := bytes.SplitAfter(output, []byte("\n"))
 	for i, line := range lines {
@@ -46,7 +51,12 @@ func redactKnownSecrets(output []byte) []byte {
 		}
 		lines[i] = redactPlainTextSecrets(line)
 	}
-	return bytes.Join(lines, nil)
+	return redactLocalPaths(bytes.Join(lines, nil))
+}
+
+func redactLocalPaths(output []byte) []byte {
+	redacted := unixAbsolutePathPattern.ReplaceAll(output, []byte("$1[LOCAL PATH]"))
+	return windowsAbsolutePathPattern.ReplaceAll(redacted, []byte("$1[LOCAL PATH]"))
 }
 
 func redactJSONLine(line []byte) ([]byte, bool) {

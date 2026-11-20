@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-//go:embed assets/panel.css assets/theme.js
+//go:embed assets/panel.css assets/theme.js assets/notifications.js assets/plugins.js
 var panelAssets embed.FS
 
 func (a *App) handleStyle(w http.ResponseWriter, r *http.Request) {
@@ -14,6 +14,14 @@ func (a *App) handleStyle(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleThemeScript(w http.ResponseWriter, r *http.Request) {
 	servePanelAsset(w, "assets/theme.js", "text/javascript; charset=utf-8")
+}
+
+func (a *App) handleNotificationsScript(w http.ResponseWriter, r *http.Request) {
+	servePanelAsset(w, "assets/notifications.js", "text/javascript; charset=utf-8")
+}
+
+func (a *App) handlePluginsScript(w http.ResponseWriter, r *http.Request) {
+	servePanelAsset(w, "assets/plugins.js", "text/javascript; charset=utf-8")
 }
 
 func servePanelAsset(w http.ResponseWriter, name, contentType string) {

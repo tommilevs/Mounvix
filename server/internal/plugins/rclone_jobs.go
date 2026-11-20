@@ -36,6 +36,7 @@ type RcloneAdapter struct {
 	SourceRoot      string
 	LookPath        func(string) (string, error)
 	ListRemotesFunc func(context.Context) ([]string, error)
+	LogStore        *LogStore
 }
 
 // ValidateRcloneJobRequest proves paths remain beneath the configured source root and remote is known.
@@ -108,6 +109,9 @@ func (a RcloneAdapter) ListRemotes(ctx context.Context) ([]string, error) {
 	if ctx == nil {
 		return nil, errors.New("rclone context is required")
 	}
+	if a.ListRemotesFunc != nil {
+		return a.ListRemotesFunc(ctx)
+	}
 	path, err := a.lookPath()
 	if err != nil {
 		return nil, err
@@ -142,6 +146,14 @@ func (a RcloneAdapter) ListRemotes(ctx context.Context) ([]string, error) {
 
 // RunSync validates and executes a confirmed sync without a shell.
 func (a RcloneAdapter) RunSync(ctx context.Context, request RcloneJobRequest) (RunResult, error) {
+	return a.RunSyncWithRunID(ctx, request, "")
+}
+
+// RunSyncWithRunID executes a constrained sync and persists its redacted output under the durable job ID.
+func (a RcloneAdapter) RunSyncWithRunID(ctx context.Context, request RcloneJobRequest, runID string) (RunResult, error) {
+	if runID != "" && !runIDPattern.MatchString(runID) {
+		return RunResult{}, errors.New("invalid rclone run ID")
+	}
 	if ctx == nil {
 		return RunResult{}, errors.New("rclone context is required")
 	}
@@ -160,7 +172,7 @@ func (a RcloneAdapter) RunSync(ctx context.Context, request RcloneJobRequest) (R
 	if err != nil {
 		return RunResult{}, err
 	}
-	release, err := SharedProcessGate().Acquire(ctx, false)
+	release, err := SharedProcessGate().Acquire(ctx, true)
 	if err != nil {
 		return RunResult{}, fmt.Errorf("acquire rclone process gate: %w", err)
 	}
@@ -174,11 +186,18 @@ func (a RcloneAdapter) RunSync(ctx context.Context, request RcloneJobRequest) (R
 	runErr := cmd.Run()
 	safe := redactRcloneOutput(output.String())
 	result := RunResult{Output: safe}
+	var logErr error
+	if runID != "" && a.LogStore != nil {
+		logErr = a.LogStore.WriteRun("rclone", "rclone", runID, []byte(safe))
+	}
 	if output.overflowed() {
-		return result, errors.New("rclone output exceeded 1 MiB")
+		return result, errors.Join(errors.New("rclone output exceeded 1 MiB"), logErr)
 	}
 	if runErr != nil {
-		return result, commandContextError("rclone sync", cctx, runErr)
+		return result, errors.Join(commandContextError("rclone sync", cctx, runErr), logErr)
+	}
+	if logErr != nil {
+		return result, fmt.Errorf("persist rclone job log: %w", logErr)
 	}
 	return result, nil
 }

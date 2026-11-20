@@ -22,30 +22,37 @@ import (
 	"golang.org/x/net/webdav"
 )
 
+type packageRemovalManager interface {
+	CanRemove() bool
+	Remove(context.Context, string) error
+}
+
 // App — HTTP-приложение Mounvix (панель + WebDAV + API).
 type App struct {
-	cfgMu         sync.RWMutex
-	cfg           Config
-	cfgPath       string
-	store         *Store
-	mux           *http.ServeMux
-	tmpl          *template.Template
-	locks         webdav.LockSystem
-	shares        *share.Manager
-	backups       *backup.Manager
-	feeds         *feeds.Manager
-	regs          *RegStore
-	pluginReg     *plugins.Registry
-	jobStore      *plugins.JobStore
-	jobManager    *plugins.JobManager
-	runtime       *plugins.Runtime
-	hookStore     *plugins.HookStore
-	notifications *plugins.NotificationStore
-	rcloneAdapter plugins.RcloneAdapter
-	ctx           context.Context
-	cancel        context.CancelFunc
-	background    sync.WaitGroup
-	started       time.Time
+	cfgMu             sync.RWMutex
+	cfg               Config
+	cfgPath           string
+	store             *Store
+	mux               *http.ServeMux
+	tmpl              *template.Template
+	locks             webdav.LockSystem
+	shares            *share.Manager
+	backups           *backup.Manager
+	feeds             *feeds.Manager
+	regs              *RegStore
+	pluginReg         *plugins.Registry
+	jobStore          *plugins.JobStore
+	jobManager        *plugins.JobManager
+	runtime           *plugins.Runtime
+	hookStore         *plugins.HookStore
+	notifications     *plugins.NotificationStore
+	rcloneAdapter     plugins.RcloneAdapter
+	packageInstaller  packageRemovalManager
+	pluginOperationMu sync.Mutex
+	ctx               context.Context
+	cancel            context.CancelFunc
+	background        sync.WaitGroup
+	started           time.Time
 }
 
 func (a *App) configSnapshot() Config {
@@ -100,8 +107,11 @@ func New(cfg Config, cfgPath string) (*App, error) {
 		log.Printf("mounvix plugins: notifications disabled: %v", notificationErr)
 	}
 	runtime := plugins.NewRuntime(cfg.DataDir, pl)
-	rcloneAdapter := plugins.RcloneAdapter{SourceRoot: cfg.RcloneSourceRoot}
-	jobManager, err := plugins.NewJobManager(jobStore,
+	rcloneAdapter := plugins.RcloneAdapter{SourceRoot: cfg.RcloneSourceRoot, LogStore: plugins.NewLogStore(cfg.DataDir)}
+	packageInstaller := plugins.NewPackageInstaller(cfgPath)
+	var app, a *App
+	var jobManager *plugins.JobManager
+	jobManager, err = plugins.NewJobManager(jobStore,
 		func(ctx context.Context, job plugins.JobRecord) (string, error) {
 			var request struct {
 				Method string          `json:"method"`
@@ -113,7 +123,7 @@ func New(cfg Config, cfgPath string) (*App, error) {
 			if request.Method != "plugin.runJob" {
 				return "", errors.New("unsupported plugin job method")
 			}
-			if _, err := runtime.Call(ctx, job.PluginID, request.Method, request.Params); err != nil {
+			if _, err := runtime.CallWithRunID(ctx, job.PluginID, request.Method, request.Params, job.RunID); err != nil {
 				return "plugin job failed", err
 			}
 			return "plugin job completed", nil
@@ -123,13 +133,63 @@ func New(cfg Config, cfgPath string) (*App, error) {
 			if err := json.Unmarshal(job.Payload, &request); err != nil {
 				return "", err
 			}
-			if _, err := rcloneAdapter.RunSync(ctx, request); err != nil {
+			if app == nil {
+				return "", errors.New("rclone jobs are unavailable")
+			}
+			if _, err := app.rcloneAdapter.RunSyncWithRunID(ctx, request, job.RunID); err != nil {
 				return "rclone job failed", err
 			}
 			return "rclone job completed", nil
 		},
-		func(context.Context, plugins.JobRecord) (string, error) {
-			return "", errors.New("package job executor is not configured")
+		func(ctx context.Context, job plugins.JobRecord) (string, error) {
+			if job.Operation != "remove" {
+				return "", errors.New("unsupported package job operation")
+			}
+			pluginID := job.PluginID
+			if pluginID == "" {
+				pluginID = job.JobID
+			}
+			if app == nil {
+				return "", errors.New("package removal is unavailable")
+			}
+			app.pluginOperationMu.Lock()
+			defer app.pluginOperationMu.Unlock()
+			packagePlugin, exists := app.pluginReg.LookupSource(pluginID, plugins.SourcePackage)
+			if !exists {
+				return "package already absent", nil
+			}
+			var request struct {
+				ConfirmedLegacyFallback bool `json:"confirmed_legacy_fallback"`
+			}
+			if err := json.Unmarshal(job.Payload, &request); err != nil {
+				return "", errors.New("invalid package removal request")
+			}
+			if packagePlugin.Enabled {
+				return "", errors.New("disable package source before removal")
+			}
+			legacy, hasLegacy := app.pluginReg.LookupSource(pluginID, plugins.SourceLegacy)
+			if hasLegacy && legacy.Enabled && !request.ConfirmedLegacyFallback {
+				return "", errors.New("legacy fallback confirmation required")
+			}
+			if app.packageInstaller == nil || !app.packageInstaller.CanRemove() {
+				return "", errors.New("package removal is unavailable on this platform")
+			}
+			if err := jobManager.DisablePlugin(ctx, pluginID); err != nil {
+				return "", fmt.Errorf("stop plugin jobs before package removal: %w", err)
+			}
+			if err := app.packageInstaller.Remove(ctx, pluginID); err != nil {
+				if packagePlugin.Enabled {
+					jobManager.EnablePlugin(pluginID)
+				}
+				return "", fmt.Errorf("remove package: %w", err)
+			}
+			if err := app.pluginReg.ForgetPackageAfterExternalRemoval(pluginID); err != nil {
+				return "package removed but registry state could not be updated", err
+			}
+			if hasLegacy && legacy.Enabled {
+				jobManager.EnablePlugin(pluginID)
+			}
+			return "package removed", nil
 		},
 	)
 	if err != nil {
@@ -144,18 +204,21 @@ func New(cfg Config, cfgPath string) (*App, error) {
 			}
 		}
 	}
-	a := &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, feeds: feedManager, regs: rg, pluginReg: pl, jobStore: jobStore, jobManager: jobManager, runtime: runtime, hookStore: hookStore, notifications: notifications, rcloneAdapter: rcloneAdapter, ctx: appCtx, cancel: cancel, started: time.Now(), locks: webdav.NewMemLS()}
+	a = &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, feeds: feedManager, regs: rg, pluginReg: pl, jobStore: jobStore, jobManager: jobManager, runtime: runtime, hookStore: hookStore, notifications: notifications, rcloneAdapter: rcloneAdapter, packageInstaller: packageInstaller, ctx: appCtx, cancel: cancel, started: time.Now(), locks: webdav.NewMemLS()}
+	app = a
 	bk.SetReportCallback(func(report backup.Report) {
 		a.publishHook(plugins.HookEvent{EventID: newHookEventID("backup.done"), Kind: "backup.done", Payload: map[string]any{"job_id": report.JobID, "files": report.Files, "bytes": report.Bytes, "skipped": report.Skipped, "error_count": len(report.Errors), "status": "completed"}})
 	})
-	jobManager.SetIntentRecorder(func(record plugins.JobRecord) {
+	jobManager.SetIntentRecorder(func(record plugins.JobRecord) error {
 		action, pluginID := auditedJobOperation(record)
 		if action == "" || pluginID == "" {
-			return
+			return nil
 		}
 		if err := a.pluginReg.RecordAudit(plugins.AuditEvent{Actor: record.ActorID, Phase: "intent", Action: action, PluginID: pluginID, RunID: record.RunID, Outcome: "queued"}); err != nil {
 			log.Printf("mounvix plugins: record job intent %s: %v", record.RunID, err)
+			return fmt.Errorf("record job intent %s: %w", record.RunID, err)
 		}
+		return nil
 	})
 	jobManager.SetOutcomePublisher(func(record plugins.JobRecord) {
 		if err := a.publishJobOutcome(record); err != nil {
@@ -298,7 +361,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r = request
 	}
 	if !a.originRequestAllowed(r, path) {
-		if strings.HasPrefix(path, "/api/v1/notifications") {
+		if strings.HasPrefix(path, "/api/v1/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
 		http.Error(w, "same-origin request required", http.StatusForbidden)
@@ -311,11 +374,23 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/health", a.handleHealth)
 	a.mux.HandleFunc("/style.css", a.handleStyle)
 	a.mux.HandleFunc("/theme.js", a.handleThemeScript)
+	a.mux.HandleFunc("/notifications.js", a.handleNotificationsScript)
+	a.mux.HandleFunc("/plugins.js", a.handlePluginsScript)
 	a.mux.HandleFunc("/login", a.handleLogin)
 	a.mux.HandleFunc("/register", a.handleRegister)
 	a.mux.HandleFunc("/registrations", a.handleRegistrations)
 	a.mux.HandleFunc("/plugins", a.requireAuth(a.handlePluginsPage))
+	a.mux.HandleFunc("/plugins/", a.requireAuth(a.handlePluginPage))
+	a.mux.HandleFunc("/notifications", a.requireAuth(a.handleNotificationsPage))
 	a.mux.HandleFunc("/api/v1/plugins", a.handlePluginsAPI)
+	a.mux.HandleFunc("/api/v1/plugins/", a.handlePluginSourceAPI)
+	a.mux.HandleFunc("/api/v1/rclone-remotes", a.handleRcloneRemotesAPI)
+	a.mux.HandleFunc("/api/v1/rclone-jobs", a.handleRcloneJobsAPI)
+	a.mux.HandleFunc("/api/v1/plugin-catalog", a.handlePluginCatalogAPI)
+	a.mux.HandleFunc("/api/v1/plugin-installations", a.handlePluginInstallationsAPI)
+	a.mux.HandleFunc("/api/v1/plugin-installations/", a.handlePluginInstallationsAPI)
+	a.mux.HandleFunc("/api/v1/jobs", a.handlePluginJobsAPI)
+	a.mux.HandleFunc("/api/v1/jobs/", a.handlePluginJobDetailAPI)
 	a.mux.HandleFunc("/api/v1/notifications", a.handleNotificationsAPI)
 	a.mux.HandleFunc("/api/v1/notifications/ws", a.handleNotificationsWebSocket)
 	a.mux.HandleFunc("/api/v1/notifications/", a.handleNotificationReadAPI)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,7 @@ type state struct {
 	BuiltinEnabled []string `json:"builtin_enabled"`
 }
 type Registry struct {
+	opMu           sync.Mutex
 	mu             sync.Mutex
 	dir            string
 	pluginRoot     string
@@ -280,6 +282,77 @@ func (r *Registry) LookupSource(id string, source PluginSource) (*Plugin, bool) 
 	copy.Enabled = r.enabledLocked(id, source)
 	return &copy, true
 }
+
+// ReadPackagePage returns bounded static page bytes for one enabled, validated package plugin.
+func (r *Registry) ReadPackagePage(pluginID, pageID string) (Page, []byte, error) {
+	if !pluginIDPattern.MatchString(pluginID) || !pluginIDPattern.MatchString(pageID) {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	r.mu.Lock()
+	plugin, ok := r.sources[SourcePackage][pluginID]
+	if !ok || plugin == nil || plugin.Manifest == nil || !r.enabledLocked(pluginID, SourcePackage) || !plugin.Available {
+		r.mu.Unlock()
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	pluginRoot := r.pluginRoot
+	manifestPages := append([]Page(nil), plugin.Manifest.Pages...)
+	r.mu.Unlock()
+	if pluginRoot == "" {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	var page Page
+	found := false
+	for _, candidate := range manifestPages {
+		if candidate.ID == pageID {
+			page = candidate
+			found = true
+			break
+		}
+	}
+	if !found || validateRelativePath(page.Path) != nil {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(pluginRoot)
+	if err != nil {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	canonicalRoot, err = filepath.Abs(canonicalRoot)
+	if err != nil {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	packageRoot, err := filepath.EvalSymlinks(filepath.Join(canonicalRoot, pluginID))
+	if err != nil {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	packageRoot, err = filepath.Abs(packageRoot)
+	if err != nil || !withinRoot(canonicalRoot, packageRoot) {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	candidatePath := filepath.Join(packageRoot, filepath.FromSlash(page.Path))
+	resolvedPath, err := filepath.EvalSymlinks(candidatePath)
+	if err != nil {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	resolvedPath, err = filepath.Abs(resolvedPath)
+	if err != nil || !withinRoot(packageRoot, resolvedPath) {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	info, err := os.Lstat(resolvedPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1<<20 {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	file, err := os.Open(resolvedPath)
+	if err != nil {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil || len(data) > 1<<20 {
+		return Page{}, nil, ErrPluginPageUnavailable
+	}
+	return page, data, nil
+}
+
 func validSource(s PluginSource) bool {
 	return s == SourceLegacy || s == SourcePackage || s == SourceBuiltin
 }
@@ -309,13 +382,23 @@ func (r *Registry) SetSourceEnabled(id string, source PluginSource, on bool) err
 }
 
 func (r *Registry) SetSourceEnabledAs(actor, id string, source PluginSource, on bool) error {
+	return r.SetSourceEnabledAsWithHooks(actor, id, source, on, nil, nil)
+}
+
+// SetSourceEnabledAsWithHooks records intent, executes before for disables, then persists source state.
+// rollback is called if before or persistence fails after before has run.
+func (r *Registry) SetSourceEnabledAsWithHooks(actor, id string, source PluginSource, on bool, before, rollback func() error) error {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if !validSource(source) {
+		r.mu.Unlock()
 		return errors.New("invalid plugin source")
 	}
 	p, ok := r.sources[source][id]
 	if !ok {
+		r.mu.Unlock()
 		return errors.New("plugin source not found")
 	}
 	action := "disable"
@@ -323,14 +406,42 @@ func (r *Registry) SetSourceEnabledAs(actor, id string, source PluginSource, on 
 		action = "enable"
 	}
 	if err := r.RecordAudit(AuditEvent{Actor: actor, Phase: "intent", Action: action, PluginID: id, Source: source}); err != nil {
+		r.mu.Unlock()
 		return fmt.Errorf("record plugin %s intent: %w", action, err)
 	}
 	if on && !p.Available {
+		r.mu.Unlock()
 		operationErr := errors.New("plugin not available (binary missing)")
 		auditErr := r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: action, PluginID: id, Source: source, Outcome: "failed"})
 		return errors.Join(operationErr, auditErr)
 	}
 	previous := r.enabledLocked(id, source)
+	r.mu.Unlock()
+
+	beforeRan := false
+	if !on && before != nil {
+		beforeRan = true
+		if err := before(); err != nil {
+			var rollbackErr error
+			if rollback != nil {
+				rollbackErr = rollback()
+			}
+			auditErr := r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: action, PluginID: id, Source: source, Outcome: "failed"})
+			return errors.Join(fmt.Errorf("prepare plugin disable: %w", err), rollbackErr, auditErr)
+		}
+	}
+
+	r.mu.Lock()
+	p, ok = r.sources[source][id]
+	if !ok {
+		r.mu.Unlock()
+		var rollbackErr error
+		if beforeRan && rollback != nil {
+			rollbackErr = rollback()
+		}
+		auditErr := r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: action, PluginID: id, Source: source, Outcome: "failed"})
+		return errors.Join(errors.New("plugin source not found"), rollbackErr, auditErr)
+	}
 	switch source {
 	case SourceLegacy:
 		r.legacyEnabled[id] = on
@@ -350,8 +461,15 @@ func (r *Registry) SetSourceEnabledAs(actor, id string, source PluginSource, on 
 			r.builtinEnabled[id] = previous
 		}
 		p.Enabled = previous
-		return errors.Join(err, r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: action, PluginID: id, Source: source, Outcome: "failed"}))
+		r.mu.Unlock()
+		var rollbackErr error
+		if beforeRan && rollback != nil {
+			rollbackErr = rollback()
+		}
+		auditErr := r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: action, PluginID: id, Source: source, Outcome: "failed"})
+		return errors.Join(err, rollbackErr, auditErr)
 	}
+	r.mu.Unlock()
 	if err := r.RecordAudit(AuditEvent{Actor: actor, Phase: "result", Action: action, PluginID: id, Source: source, Outcome: "succeeded"}); err != nil {
 		return fmt.Errorf("record plugin %s result: %w", action, err)
 	}
@@ -362,6 +480,8 @@ func (r *Registry) RemovePackage(id string, confirmedLegacyFallback bool) error 
 }
 
 func (r *Registry) RemovePackageAs(actor, id string, confirmedLegacyFallback bool) error {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	plugin, ok := r.sources[SourcePackage][id]
@@ -393,6 +513,38 @@ func (r *Registry) RemovePackageAs(actor, id string, confirmedLegacyFallback boo
 	}
 	return nil
 }
+
+// ForgetPackageAfterExternalRemoval updates registry state after the fixed package manager removed the OS package.
+// The enclosing durable package job records audit intent and result with its run ID.
+func (r *Registry) ForgetPackageAfterExternalRemoval(id string) error {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	plugin, ok := r.sources[SourcePackage][id]
+	if !ok {
+		return errors.New("package plugin not found")
+	}
+	packageEnabled, hadEnabledState := r.packageEnabled[id]
+	legacy, hasLegacy := r.sources[SourceLegacy][id]
+	delete(r.sources[SourcePackage], id)
+	delete(r.packageEnabled, id)
+	if hasLegacy {
+		legacy.Enabled = r.legacyEnabled[id]
+	}
+	if err := r.saveLocked(); err != nil {
+		r.sources[SourcePackage][id] = plugin
+		if hadEnabledState {
+			r.packageEnabled[id] = packageEnabled
+		}
+		if hasLegacy {
+			legacy.Enabled = r.legacyEnabled[id]
+		}
+		return fmt.Errorf("persist removed package state: %w", err)
+	}
+	return nil
+}
+
 func (r *Registry) saveLocked() error {
 	st := state{Version: 2, Enabled: boolIDs(r.legacyEnabled), PackageEnabled: boolIDs(r.packageEnabled), BuiltinEnabled: boolIDs(r.builtinEnabled)}
 	sort.Strings(st.Enabled)

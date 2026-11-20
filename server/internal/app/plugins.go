@@ -17,27 +17,79 @@ import (
 	"github.com/tommilevs/Mounvix/server/internal/version"
 )
 
+type pluginPageLink struct {
+	PluginID   string
+	PluginName string
+	PageID     string
+	PageName   string
+	URL        string
+}
+
+type legacyPluginAPIView struct {
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	Version     string               `json:"version"`
+	Description string               `json:"description,omitempty"`
+	Kind        string               `json:"kind"`
+	Builtin     bool                 `json:"builtin"`
+	Enabled     bool                 `json:"enabled"`
+	Available   bool                 `json:"available"`
+	Source      plugins.PluginSource `json:"source,omitempty"`
+}
+
 type pluginsView struct {
-	Title   string
-	Lang    string
-	User    *User
-	Cfg     Config
-	Version string
-	Plugins []*plugins.Plugin
-	Rclone  plugins.RcloneStatus
-	Msg     string
-	Err     string
+	Title                  string
+	Lang                   string
+	User                   *User
+	Cfg                    Config
+	Version                string
+	Plugins                []*plugins.Plugin
+	PageLinks              []pluginPageLink
+	Catalog                plugins.CatalogStatus
+	Rclone                 plugins.RcloneStatus
+	RcloneSourceConfigured bool
+	Msg                    string
+	Err                    string
+}
+
+func safeLegacyPluginList(items []*plugins.Plugin) []legacyPluginAPIView {
+	views := make([]legacyPluginAPIView, 0, len(items))
+	for _, plugin := range items {
+		if plugin == nil {
+			continue
+		}
+		views = append(views, legacyPluginAPIView{ID: plugin.ID, Name: plugin.Name, Version: plugin.Version, Description: plugin.Description, Kind: plugin.Kind, Builtin: plugin.Builtin, Enabled: plugin.Enabled, Available: plugin.Available, Source: plugin.Source})
+	}
+	return views
 }
 
 func (a *App) setPluginEnabled(actor, id string, enabled bool) error {
-	if err := a.pluginReg.SetEnabledAs(actor, id, enabled); err != nil {
+	for _, plugin := range a.pluginReg.List() {
+		if plugin.ID == id {
+			return a.setPluginSourceEnabled(context.Background(), actor, id, plugin.Source, enabled)
+		}
+	}
+	return errors.New("plugin not found")
+}
+
+func (a *App) setPluginSourceEnabled(ctx context.Context, actor, id string, source plugins.PluginSource, enabled bool) error {
+	a.pluginOperationMu.Lock()
+	defer a.pluginOperationMu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var before, rollback func() error
+	if source == plugins.SourcePackage && !enabled {
+		before = func() error { return a.jobManager.DisablePlugin(ctx, id) }
+		rollback = func() error { a.jobManager.EnablePlugin(id); return nil }
+	}
+	if err := a.pluginReg.SetSourceEnabledAsWithHooks(actor, id, source, enabled, before, rollback); err != nil {
 		return err
 	}
-	if enabled {
+	if source == plugins.SourcePackage && enabled {
 		a.jobManager.EnablePlugin(id)
-		return nil
 	}
-	return a.jobManager.DisablePlugin(context.Background(), id)
+	return nil
 }
 
 func (a *App) handlePluginsPage(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +103,7 @@ func (a *App) handlePluginsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := a.configSnapshot()
-	v := &pluginsView{Title: "Плагины", Lang: cfg.Lang, Version: version.Version, User: u, Cfg: cfg}
+	v := &pluginsView{Title: "Плагины", Lang: cfg.Lang, Version: version.Version, User: u, Cfg: cfg, RcloneSourceConfigured: strings.TrimSpace(cfg.RcloneSourceRoot) != ""}
 	if r.Method == http.MethodPost {
 		_ = r.ParseForm()
 		if r.PostFormValue("action") == "rclone_sync" {
@@ -60,7 +112,7 @@ func (a *App) handlePluginsPage(w http.ResponseWriter, r *http.Request) {
 			id := r.PostFormValue("id")
 			on := r.PostFormValue("enabled") == "1"
 			if err := a.setPluginEnabled(u.Name, id, on); err != nil {
-				v.Err = err.Error()
+				v.Err = "Не удалось обновить источник плагина."
 			} else {
 				v.Msg = "Плагин обновлён: " + id
 				a.store.Audit(u.Name, "plugin_toggle", id)
@@ -68,25 +120,78 @@ func (a *App) handlePluginsPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	v.Plugins = a.pluginReg.List()
+	v.Catalog = plugins.DefaultCatalogStatus()
 	v.Rclone = a.pluginReg.RcloneStatus()
+	for _, effective := range v.Plugins {
+		if effective.Source != plugins.SourcePackage {
+			continue
+		}
+		packagePlugin, found := a.pluginReg.LookupSource(effective.ID, plugins.SourcePackage)
+		if !found || !packagePlugin.Enabled || packagePlugin.Manifest == nil {
+			continue
+		}
+		for _, page := range packagePlugin.Manifest.Pages {
+			pageName := page.Name
+			if pageName == "" {
+				pageName = page.ID
+			}
+			v.PageLinks = append(v.PageLinks, pluginPageLink{PluginID: packagePlugin.ID, PluginName: packagePlugin.Name, PageID: page.ID, PageName: pageName, URL: a.routePath("/plugins/" + packagePlugin.ID + "/pages/" + page.ID)})
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = a.tmpl.ExecuteTemplate(w, "plugins.html", v)
 }
 
-func (a *App) handlePluginsAPI(w http.ResponseWriter, r *http.Request) {
+func (a *App) handlePluginPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	u, ok := a.cookieUser(r)
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Redirect(w, r, a.routePath("/login"), http.StatusSeeOther)
 		return
 	}
 	if !u.IsAdmin() {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) != 4 || parts[0] != "plugins" || parts[2] != "pages" {
+		http.NotFound(w, r)
+		return
+	}
+	_, content, err := a.pluginReg.ReadPackagePage(parts[1], parts[3])
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
+	_, _ = w.Write(content)
+}
+
+func (a *App) handlePluginsAPI(w http.ResponseWriter, r *http.Request) {
+	u, ok := a.requirePluginAdmin(w, r)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodGet && !a.sameOrigin(r) {
+		writePluginAPIError(w, http.StatusForbidden, "same_origin_required", "same-origin request required")
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, map[string]any{"plugins": a.pluginReg.List(), "rclone": a.pluginReg.RcloneStatus()})
+		rclone := a.pluginReg.RcloneStatus()
+		rclone.Error = ""
+		writePluginAPIJSON(w, http.StatusOK, map[string]any{"plugins": safeLegacyPluginList(a.pluginReg.List()), "rclone": rclone})
 	case http.MethodPost:
+		r.Body = http.MaxBytesReader(w, r.Body, maxPluginAPIRequestBytes)
 		var req struct {
 			ID              string `json:"id"`
 			Enabled         bool   `json:"enabled"`
@@ -96,12 +201,25 @@ func (a *App) handlePluginsAPI(w http.ResponseWriter, r *http.Request) {
 			DestinationPath string `json:"destination_path"`
 			Confirmed       bool   `json:"confirmed"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-			http.Error(w, "invalid JSON request", http.StatusBadRequest)
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				writePluginAPIError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body is too large")
+			} else {
+				writePluginAPIError(w, http.StatusBadRequest, "invalid_request", "invalid JSON request")
+			}
+			return
+		}
+		if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+			writePluginAPIError(w, http.StatusBadRequest, "invalid_request", "request must contain one JSON value")
 			return
 		}
 		if req.ID == "" && req.Action == "" {
-			_ = r.ParseForm()
+			if err := r.ParseForm(); err != nil {
+				writePluginAPIError(w, http.StatusBadRequest, "invalid_request", "invalid form request")
+				return
+			}
 			req.ID = r.PostFormValue("id")
 			req.Enabled = r.PostFormValue("enabled") == "1"
 			req.Action = r.PostFormValue("action")
@@ -111,24 +229,35 @@ func (a *App) handlePluginsAPI(w http.ResponseWriter, r *http.Request) {
 			req.Confirmed = r.PostFormValue("confirmed") == "1"
 		}
 		if req.Action == "rclone_sync" {
-			record, err := a.enqueueRcloneJob(r.Context(), u.Name, plugins.RcloneJobRequest{SourcePath: req.SourcePath, RemoteName: req.RemoteName, DestinationPath: req.DestinationPath, Confirmed: req.Confirmed})
+			if !validPluginIdempotencyKey(r) {
+				writePluginAPIError(w, http.StatusBadRequest, "invalid_idempotency_key", "one valid Idempotency-Key header is required")
+				return
+			}
+			record, err := a.enqueueRcloneJob(r.Context(), u.Name, strings.TrimSpace(r.Header.Get("Idempotency-Key")), plugins.RcloneJobRequest{SourcePath: req.SourcePath, RemoteName: req.RemoteName, DestinationPath: req.DestinationPath, Confirmed: req.Confirmed})
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+				switch {
+				case errors.Is(err, plugins.ErrIdempotencyConflict):
+					writePluginAPIError(w, http.StatusConflict, "idempotency_conflict", "Idempotency-Key was already used for a different request")
+				case errors.Is(err, plugins.ErrJobQueueFull):
+					writePluginAPIError(w, http.StatusServiceUnavailable, "queue_full", "rclone job queue is full")
+				default:
+					writePluginAPIError(w, http.StatusBadRequest, "invalid_request", "rclone job request is invalid or unavailable")
+				}
 				return
 			}
 			a.store.Audit(u.Name, "rclone_sync", record.RunID)
-			w.WriteHeader(http.StatusAccepted)
-			writeJSON(w, map[string]any{"job": record})
+			writePluginAPIJSON(w, http.StatusAccepted, map[string]any{"job": record})
 			return
 		}
 		if err := a.setPluginEnabled(u.Name, req.ID, req.Enabled); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writePluginAPIError(w, http.StatusBadRequest, "invalid_request", "plugin source could not be updated")
 			return
 		}
 		a.store.Audit(u.Name, "plugin_toggle", req.ID)
-		writeJSON(w, map[string]any{"ok": true})
+		writePluginAPIJSON(w, http.StatusOK, map[string]any{"ok": true})
 	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
+		writePluginAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	}
 }
 
@@ -310,7 +439,56 @@ func newHookEventID(kind string) string {
 	return "hook-" + hex.EncodeToString(sum[:16])
 }
 
-func (a *App) enqueueRcloneJob(ctx context.Context, actor string, request plugins.RcloneJobRequest) (plugins.JobRecord, error) {
+func (a *App) handleRcloneRemotesAPI(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.requirePluginAdmin(w, r); !ok {
+		return
+	}
+	if r.Method != http.MethodGet {
+		writePluginAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	remotes, err := a.rcloneAdapter.ListRemotes(r.Context())
+	if err != nil || len(remotes) > 256 {
+		writePluginAPIError(w, http.StatusServiceUnavailable, "unavailable", "rclone remote list is unavailable")
+		return
+	}
+	writePluginAPIJSON(w, http.StatusOK, map[string]any{"remotes": remotes})
+}
+
+func (a *App) handleRcloneJobsAPI(w http.ResponseWriter, r *http.Request) {
+	user, ok := a.requirePluginAdmin(w, r)
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		writePluginAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+	var request plugins.RcloneJobRequest
+	if err := decodePluginAPIJSON(w, r, &request); err != nil {
+		writePluginAPIError(w, err.status, err.code, err.message)
+		return
+	}
+	if !validPluginIdempotencyKey(r) {
+		writePluginAPIError(w, http.StatusBadRequest, "invalid_idempotency_key", "one valid Idempotency-Key header is required")
+		return
+	}
+	run, err := a.enqueueRcloneJob(r.Context(), user.Name, strings.TrimSpace(r.Header.Get("Idempotency-Key")), request)
+	if err != nil {
+		switch {
+		case errors.Is(err, plugins.ErrIdempotencyConflict):
+			writePluginAPIError(w, http.StatusConflict, "idempotency_conflict", "Idempotency-Key was already used for a different request")
+		case errors.Is(err, plugins.ErrJobQueueFull):
+			writePluginAPIError(w, http.StatusServiceUnavailable, "queue_full", "rclone job queue is full")
+		default:
+			writePluginAPIError(w, http.StatusBadRequest, "invalid_request", "rclone job request is invalid or unavailable")
+		}
+		return
+	}
+	writePluginAPIJSON(w, http.StatusAccepted, map[string]any{"job": run})
+}
+
+func (a *App) enqueueRcloneJob(ctx context.Context, actor, idempotencyKey string, request plugins.RcloneJobRequest) (plugins.JobRecord, error) {
 	if strings.TrimSpace(a.rcloneAdapter.SourceRoot) == "" {
 		return plugins.JobRecord{}, errors.New("rclone source root is not configured")
 	}
@@ -325,7 +503,7 @@ func (a *App) enqueueRcloneJob(ctx context.Context, actor string, request plugin
 	if err != nil {
 		return plugins.JobRecord{}, fmt.Errorf("encode rclone request: %w", err)
 	}
-	return a.jobManager.Enqueue(ctx, plugins.JobRequest{ActorID: actor, Kind: "rclone", JobID: "rclone.sync", Operation: "sync", Payload: payload})
+	return a.jobManager.Enqueue(ctx, plugins.JobRequest{ActorID: actor, Kind: "rclone", JobID: "rclone.sync", Operation: "sync", Payload: payload, IdempotencyKey: idempotencyKey})
 }
 
 func truncate(s string, n int) string {

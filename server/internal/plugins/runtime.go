@@ -19,6 +19,7 @@ import (
 var (
 	ErrRuntimeBusy             = errors.New("plugin runtime is busy")
 	ErrPluginNotFound          = errors.New("plugin not found")
+	ErrPluginPageUnavailable   = errors.New("plugin page unavailable")
 	ErrRuntimeMethodNotAllowed = errors.New("plugin runtime method is not allowed")
 	ErrJobQueueFull            = errors.New("plugin job queue is full")
 )
@@ -107,6 +108,14 @@ func (r *Runtime) SetSettingsGetter(getter func(pluginID, key string) (json.RawM
 
 // Call starts a one-shot plugin process and invokes one manifest-allowed JSON-RPC method.
 func (r *Runtime) Call(ctx context.Context, pluginID, method string, params json.RawMessage) (json.RawMessage, error) {
+	return r.CallWithRunID(ctx, pluginID, method, params, "")
+}
+
+// CallWithRunID associates runtime output with a durable job run when runID is provided.
+func (r *Runtime) CallWithRunID(ctx context.Context, pluginID, method string, params json.RawMessage, runID string) (json.RawMessage, error) {
+	if runID != "" && !runIDPattern.MatchString(runID) {
+		return nil, errors.New("invalid runtime run ID")
+	}
 	if ctx == nil {
 		return nil, errors.New("runtime context is required")
 	}
@@ -144,7 +153,7 @@ func (r *Runtime) Call(ctx context.Context, pluginID, method string, params json
 	}
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
-	result, output, runID, callErr := r.runOneShot(callCtx, plugin, method, params)
+	result, output, runID, callErr := r.runOneShot(callCtx, plugin, method, params, runID)
 	if len(output) != 0 && r.logStore != nil {
 		if logErr := r.logStore.WriteRun("plugins", pluginID, runID, output); callErr == nil && logErr != nil {
 			callErr = logErr
@@ -153,12 +162,15 @@ func (r *Runtime) Call(ctx context.Context, pluginID, method string, params json
 	return result, callErr
 }
 
-func (r *Runtime) runOneShot(ctx context.Context, plugin *Plugin, method string, params json.RawMessage) (result json.RawMessage, output []byte, runID string, runErr error) {
-	var runBytes [16]byte
-	if _, err := rand.Read(runBytes[:]); err != nil {
-		return nil, nil, "", fmt.Errorf("generate run id: %w", err)
+func (r *Runtime) runOneShot(ctx context.Context, plugin *Plugin, method string, params json.RawMessage, runID string) (result json.RawMessage, output []byte, resultRunID string, runErr error) {
+	if runID == "" {
+		var runBytes [16]byte
+		if _, err := rand.Read(runBytes[:]); err != nil {
+			return nil, nil, "", fmt.Errorf("generate run id: %w", err)
+		}
+		runID = "run-" + hex.EncodeToString(runBytes[:])
 	}
-	runID = "run-" + hex.EncodeToString(runBytes[:])
+	resultRunID = runID
 	listener, socket, cleanup, err := listenPluginSocket(filepath.Join(r.dataDir, "run", "plugins"))
 	if err != nil {
 		return nil, nil, runID, err

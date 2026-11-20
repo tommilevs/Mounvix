@@ -26,6 +26,8 @@ func TestPanelStaticAssetRoutes(t *testing.T) {
 	}{
 		{path: "/style.css", contentType: "text/css; charset=utf-8"},
 		{path: "/theme.js", contentType: "text/javascript; charset=utf-8"},
+		{path: "/notifications.js", contentType: "text/javascript; charset=utf-8"},
+		{path: "/plugins.js", contentType: "text/javascript; charset=utf-8"},
 	}
 
 	for _, tc := range cases {

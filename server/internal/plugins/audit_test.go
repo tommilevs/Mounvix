@@ -9,6 +9,31 @@ import (
 	"time"
 )
 
+func TestAuditStoreAcceptsIdempotentJobCancellationEvents(t *testing.T) {
+	registry, err := NewRegistry(t.TempDir(), "", "1.0.0", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []AuditEvent{
+		{Actor: "admin", Phase: "intent", Action: "cancel", PluginID: "demo", RunID: "run-0123456789abcdef", Outcome: "requested"},
+		{Actor: "admin", Phase: "result", Action: "cancel", PluginID: "demo", RunID: "run-0123456789abcdef", Outcome: "cancelled"},
+	} {
+		if err := registry.RecordAudit(event); err != nil {
+			t.Fatalf("RecordAudit(%s): %v", event.Phase, err)
+		}
+		if err := registry.RecordAudit(event); err != nil {
+			t.Fatalf("repeat RecordAudit(%s): %v", event.Phase, err)
+		}
+	}
+	events, err := registry.audit.Recent(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Action != "cancel" || events[1].Action != "cancel" || events[0].Phase != "intent" || events[1].Phase != "result" {
+		t.Fatalf("cancellation audit events = %+v", events)
+	}
+}
+
 func TestAuditRunEventsAreIdempotentAcrossReconciliation(t *testing.T) {
 	registry, err := NewRegistry(t.TempDir(), "", "1.0.0", "amd64")
 	if err != nil {

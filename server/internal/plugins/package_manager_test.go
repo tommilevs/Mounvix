@@ -54,14 +54,30 @@ func makeTestVerifiedArtifact(t *testing.T, format, id, version, arch string) Ve
 	return artifact
 }
 
-func TestProductionInstallerBlocksMutationsWithoutReleaseKeys(t *testing.T) {
+func TestProductionInstallerBlocksInstallButAllowsValidatedRemovalWithoutReleaseKeys(t *testing.T) {
 	installer := NewPackageInstaller("/opt/etc/mounvix/config.json")
 	artifact := makeTestVerifiedArtifact(t, "ipk", "demo", "1.0.0", "aarch64")
 	if err := installer.Install(context.Background(), "demo", artifact); err == nil {
 		t.Fatal("production installer enabled without release keys and signed catalog")
 	}
-	if err := installer.Remove(context.Background(), "demo"); err == nil {
-		t.Fatal("production package removal enabled while catalog is read-only")
+	if !installer.CanRemove() {
+		t.Fatal("validated removal should remain available on the supported platform")
+	}
+}
+
+func TestPackageInstallerAllowsValidatedRemovalWhenCatalogIsReadOnly(t *testing.T) {
+	runner := &recordingCommandRunner{}
+	metadata := fixedMetadataReader{}
+	installer := newPackageInstaller("/opt/etc/mounvix/config.json", runner, metadata)
+	installer.mutationsEnabled = false
+	if err := installer.Remove(context.Background(), "demo"); err != nil {
+		t.Fatalf("Remove() while catalog is read-only: %v", err)
+	}
+	if len(runner.calls) != 1 || runner.calls[0].program != "/opt/bin/opkg" || !reflect.DeepEqual(runner.calls[0].args, []string{"remove", "demo"}) {
+		t.Fatalf("removal command=%+v", runner.calls)
+	}
+	if err := installer.Remove(context.Background(), "../demo"); err == nil {
+		t.Fatal("removal accepted an unvalidated package ID")
 	}
 }
 

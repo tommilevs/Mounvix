@@ -70,7 +70,7 @@ func (r *Registry) RecordAudit(event AuditEvent) error {
 		return errors.New("invalid plugin audit phase")
 	}
 	switch event.Action {
-	case "install", "update", "enable", "disable", "remove", "run":
+	case "install", "update", "enable", "disable", "remove", "run", "cancel":
 	default:
 		return errors.New("invalid plugin audit action")
 	}
