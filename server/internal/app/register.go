@@ -166,7 +166,7 @@ type regsView struct {
 func (a *App) handleRegistrations(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.cookieUser(r)
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/login"), http.StatusSeeOther)
 		return
 	}
 	if !u.IsAdmin() {

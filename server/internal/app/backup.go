@@ -33,7 +33,7 @@ func (a *App) backupAuth(w http.ResponseWriter, r *http.Request) (*User, bool) {
 func (a *App) handleBackupPage(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.cookieUser(r)
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/login"), http.StatusSeeOther)
 		return
 	}
 	if r.Method == http.MethodPost {
@@ -78,7 +78,7 @@ func (a *App) handleBackupPage(w http.ResponseWriter, r *http.Request) {
 				a.store.Audit(u.Name, "backup_delete", r.PostFormValue("id"))
 			}
 		}
-		http.Redirect(w, r, "/backup", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/backup"), http.StatusSeeOther)
 		return
 	}
 	reports := map[string]backup.Report{}

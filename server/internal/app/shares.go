@@ -30,7 +30,7 @@ type sharesView struct {
 func (a *App) handleSharesPage(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.cookieUser(r)
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/login"), http.StatusSeeOther)
 		return
 	}
 	if r.Method == http.MethodPost {
@@ -59,7 +59,7 @@ func (a *App) handleSharesPage(w http.ResponseWriter, r *http.Request) {
 				a.store.Audit(u.Name, "share_revoke", r.PostFormValue("token"))
 			}
 		}
-		http.Redirect(w, r, "/shares", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/shares"), http.StatusSeeOther)
 		return
 	}
 	cfg := a.configSnapshot()
@@ -181,7 +181,7 @@ func (a *App) handlePublicShare(w http.ResponseWriter, r *http.Request) {
 					Name: a.shares.CookieName(token), Value: cookie, Path: "/",
 					Expires: s.ExpiresAt, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 				})
-				http.Redirect(w, r, r.URL.RequestURI(), http.StatusSeeOther)
+				http.Redirect(w, r, a.routePath(r.URL.RequestURI()), http.StatusSeeOther)
 				return
 			}
 			a.renderSharePassword(w, token, "Неверный пароль", http.StatusUnauthorized)
@@ -264,7 +264,7 @@ func (a *App) renderShareDir(w http.ResponseWriter, s *share.Share, target, sub 
 			Name:  e.Name(),
 			IsDir: e.IsDir(),
 			Size:  info.Size(),
-			URL:   "/s/" + s.Token + "?path=" + urlQueryEscape(rel),
+			URL:   a.routePath("/s/" + s.Token + "?path=" + urlQueryEscape(rel)),
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
@@ -278,7 +278,7 @@ func (a *App) renderShareDir(w http.ResponseWriter, s *share.Share, target, sub 
 		if parent == "." {
 			parent = ""
 		}
-		b.WriteString(`<p><a href="/s/` + s.Token + `?path=` + urlQueryEscape(parent) + `">← Наверх</a></p>`)
+		b.WriteString(`<p><a href="` + a.routePath("/s/"+s.Token+"?path="+urlQueryEscape(parent)) + `">← Наверх</a></p>`)
 	}
 	b.WriteString(`<ul style="list-style:none;padding:0">`)
 	for _, r := range rows {

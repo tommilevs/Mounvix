@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"sync"
@@ -277,7 +278,34 @@ func (a *App) runPluginSchedulerOnce(ctx context.Context, now time.Time) error {
 	return schedulerErr
 }
 
-func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.mux.ServeHTTP(w, r) }
+func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	basePath := a.configSnapshot().PublicBasePath
+	if basePath != "" {
+		if path == basePath {
+			path = "/"
+		} else if strings.HasPrefix(path, basePath+"/") {
+			path = strings.TrimPrefix(path, basePath)
+		} else {
+			http.NotFound(w, r)
+			return
+		}
+		request := r.Clone(r.Context())
+		requestURL := *r.URL
+		requestURL.Path = path
+		requestURL.RawPath = ""
+		request.URL = &requestURL
+		r = request
+	}
+	if !a.originRequestAllowed(r, path) {
+		if strings.HasPrefix(path, "/api/v1/notifications") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		http.Error(w, "same-origin request required", http.StatusForbidden)
+		return
+	}
+	a.mux.ServeHTTP(w, r)
+}
 
 func (a *App) routes() {
 	a.mux.HandleFunc("/health", a.handleHealth)
@@ -288,6 +316,9 @@ func (a *App) routes() {
 	a.mux.HandleFunc("/registrations", a.handleRegistrations)
 	a.mux.HandleFunc("/plugins", a.requireAuth(a.handlePluginsPage))
 	a.mux.HandleFunc("/api/v1/plugins", a.handlePluginsAPI)
+	a.mux.HandleFunc("/api/v1/notifications", a.handleNotificationsAPI)
+	a.mux.HandleFunc("/api/v1/notifications/ws", a.handleNotificationsWebSocket)
+	a.mux.HandleFunc("/api/v1/notifications/", a.handleNotificationReadAPI)
 	a.mux.HandleFunc("/api/v1/session", a.handleAPISession)
 	a.mux.HandleFunc("/api/v1/feeds", a.handleFeedsAPI)
 	a.mux.HandleFunc("/api/v1/feeds/", a.handleFeedReadAPI)
@@ -374,7 +405,9 @@ func (a *App) cookieUser(r *http.Request) (*User, bool) {
 func (a *App) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := a.cookieUser(r); !ok {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			login := a.routePath("/login")
+			next := a.safeReturnRoute(a.routePath(r.URL.Path))
+			http.Redirect(w, r, login+"?next="+url.QueryEscape(next), http.StatusSeeOther)
 			return
 		}
 		next(w, r)

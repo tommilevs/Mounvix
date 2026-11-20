@@ -234,7 +234,7 @@ func TestPanelRequiresAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/login" {
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/login?next=%2Fusers" {
 		t.Fatalf("unauthenticated /users: status=%d loc=%q", resp.StatusCode, resp.Header.Get("Location"))
 	}
 }

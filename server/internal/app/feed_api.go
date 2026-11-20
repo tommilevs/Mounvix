@@ -84,8 +84,9 @@ func (a *App) handleAPISession(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
-		Path:     "/",
+		Path:     a.sessionCookiePath(),
 		HttpOnly: true,
+		Secure:   a.sessionCookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   12 * 60 * 60,
 	})
@@ -213,10 +214,10 @@ func (a *App) visibleFeedCard(u *User, card feeds.Card) feedAPICard {
 			Path:       filepath.ToSlash(item.Path),
 			Kind:       item.Kind,
 			ModifiedAt: item.ModifiedAt,
-			FileURL:    "/api/v1/file?" + query.Encode(),
+			FileURL:    a.routePath("/api/v1/file?" + query.Encode()),
 		}
 		if media.Supported(full) {
-			apiItem.ThumbnailURL = "/api/v1/thumbs?" + query.Encode()
+			apiItem.ThumbnailURL = a.routePath("/api/v1/thumbs?" + query.Encode())
 		}
 		result.Media = append(result.Media, apiItem)
 	}

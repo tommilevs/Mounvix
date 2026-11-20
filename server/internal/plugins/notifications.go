@@ -17,6 +17,9 @@ import (
 const notificationRetentionLimit = 1000
 const notificationRetentionAge = 30 * 24 * time.Hour
 
+// ErrNotificationNotFound is returned when a notification event is unknown.
+var ErrNotificationNotFound = errors.New("notification event not found")
+
 // NotificationEvent is a safe terminal plugin or rclone outcome for admins.
 type NotificationEvent struct {
 	EventID     string    `json:"event_id"`
@@ -266,7 +269,7 @@ func (s *NotificationStore) MarkRead(userID, eventID string) error {
 			return nil
 		}
 	}
-	return errors.New("notification event not found")
+	return ErrNotificationNotFound
 }
 
 // Subscribe returns a bounded live stream and idempotent cancellation function.

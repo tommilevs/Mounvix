@@ -121,7 +121,7 @@ func (a *App) handleFileStream(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleMediaPage(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.cookieUser(r)
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/login"), http.StatusSeeOther)
 		return
 	}
 	cfg := a.configSnapshot()
@@ -149,8 +149,8 @@ func (a *App) handleMediaPage(w http.ResponseWriter, r *http.Request) {
 						Name:     e.Name(),
 						Path:     child,
 						IsVideo:  isVideo,
-						FileURL:  "/api/v1/file?" + q.Encode(),
-						ThumbURL: "/api/v1/thumbs?" + q.Encode() + "&w=300",
+						FileURL:  a.routePath("/api/v1/file?" + q.Encode()),
+						ThumbURL: a.routePath("/api/v1/thumbs?" + q.Encode() + "&w=300"),
 					})
 				}
 			}

@@ -182,7 +182,7 @@ func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 			a.store.SetACL(name, acl)
 			a.store.Audit(admin.Name, "user_acl", name)
 		}
-		http.Redirect(w, r, "/users", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/users"), http.StatusSeeOther)
 		return
 	}
 	v := a.viewFor(r)
@@ -239,7 +239,7 @@ func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 			a.feeds.SetConfig(cfg)
 			a.store.Audit(u.Name, "feed_settings", "updated")
 		}
-		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/settings"), http.StatusSeeOther)
 		return
 	}
 	v := a.viewFor(r)
@@ -286,6 +286,7 @@ func hasString(values []string, want string) bool {
 func mustTemplates(a *App) *template.Template {
 	t := template.New("root").Funcs(template.FuncMap{
 		"T":         func(k string) string { return a.T(k) },
+		"route":     a.routePath,
 		"hasInt":    hasInt,
 		"hasString": hasString,
 		"join":      strings.Join,
@@ -306,23 +307,23 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 
 {{define "head.html"}}<!doctype html>
 <html lang="{{.Lang}}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mounvix — {{.Title}}</title><script src="/theme.js"></script><link rel="stylesheet" href="/style.css"></head><body class="panel-page">
+<title>Mounvix — {{.Title}}</title><script src="{{route "/theme.js"}}"></script><link rel="stylesheet" href="{{route "/style.css"}}"></head><body class="panel-page">
 <a class="skip-link" href="#main-content">{{T "skip_content"}}</a>
 <div class="app-shell">
 {{if .User}}<aside class="sidebar" id="sidebar" data-open="false">
 <div class="sidebar-header">
-<a class="brand" href="/" aria-label="Mounvix — {{T "nav_overview"}}">Mounvix<span class="brand-subtitle">SERVER</span></a>
+<a class="brand" href="{{route "/"}}" aria-label="Mounvix — {{T "nav_overview"}}">Mounvix<span class="brand-subtitle">SERVER</span></a>
 <button class="sidebar-close" id="nav-close" type="button" aria-label="{{T "close_menu"}}"><span aria-hidden="true">×</span></button>
 </div>
 <nav class="primary-nav" id="primary-nav" aria-label="{{T "nav_label"}}">
-<a class="nav-link" data-nav-link href="/">{{T "nav_overview"}}</a><a class="nav-link" data-nav-link href="/folders">{{T "nav_folders"}}</a><a class="nav-link" data-nav-link href="/users">{{T "nav_users"}}</a>
-<a class="nav-link" data-nav-link href="/shares">{{T "nav_shares"}}</a><a class="nav-link" data-nav-link href="/media">{{T "nav_media"}}</a><a class="nav-link" data-nav-link href="/backup">{{T "nav_backup"}}</a><a class="nav-link" data-nav-link href="/registrations">{{T "nav_regs"}}</a><a class="nav-link" data-nav-link href="/plugins">{{T "nav_plugins"}}</a><a class="nav-link" data-nav-link href="/ai">{{T "nav_ai"}}</a><a class="nav-link" data-nav-link href="/settings">{{T "nav_settings"}}</a><a class="nav-link" data-nav-link href="/logs">{{T "nav_logs"}}</a><a class="nav-link" data-nav-link href="/stats">{{T "nav_stats"}}</a>
+<a class="nav-link" data-nav-link href="{{route "/"}}">{{T "nav_overview"}}</a><a class="nav-link" data-nav-link href="{{route "/folders"}}">{{T "nav_folders"}}</a><a class="nav-link" data-nav-link href="{{route "/users"}}">{{T "nav_users"}}</a>
+<a class="nav-link" data-nav-link href="{{route "/shares"}}">{{T "nav_shares"}}</a><a class="nav-link" data-nav-link href="{{route "/media"}}">{{T "nav_media"}}</a><a class="nav-link" data-nav-link href="{{route "/backup"}}">{{T "nav_backup"}}</a><a class="nav-link" data-nav-link href="{{route "/registrations"}}">{{T "nav_regs"}}</a><a class="nav-link" data-nav-link href="{{route "/plugins"}}">{{T "nav_plugins"}}</a><a class="nav-link" data-nav-link href="{{route "/ai"}}">{{T "nav_ai"}}</a><a class="nav-link" data-nav-link href="{{route "/settings"}}">{{T "nav_settings"}}</a><a class="nav-link" data-nav-link href="{{route "/logs"}}">{{T "nav_logs"}}</a><a class="nav-link" data-nav-link href="{{route "/stats"}}">{{T "nav_stats"}}</a>
 </nav>
-<div class="sidebar-footer"><form method="post" action="/logout"><button>{{T "logout"}}</button></form></div>
+<div class="sidebar-footer"><form method="post" action="{{route "/logout"}}"><button>{{T "logout"}}</button></form></div>
 </aside>{{end}}
 <div class="main-shell{{if not .User}} main-shell--public{{end}}">
 <header class="topbar">
-{{if .User}}<button class="menu-toggle" id="nav-toggle" type="button" aria-controls="sidebar" aria-expanded="false"><span aria-hidden="true">☰</span><span>{{T "menu"}}</span></button><span class="mobile-brand">Mounvix</span>{{else}}<a class="mobile-brand" href="/">Mounvix</a>{{end}}
+{{if .User}}<button class="menu-toggle" id="nav-toggle" type="button" aria-controls="sidebar" aria-expanded="false"><span aria-hidden="true">☰</span><span>{{T "menu"}}</span></button><span class="mobile-brand">Mounvix</span>{{else}}<a class="mobile-brand" href="{{route "/"}}">Mounvix</a>{{end}}
 {{template "themeControl.html" .}}
 </header>
 <main id="main-content" tabindex="-1">
@@ -351,7 +352,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 
 {{define "users.html"}}{{template "head.html" .}}
 <h1>{{T "users"}}</h1>
-<form method="post" action="/users" class="row">
+<form method="post" action="{{route "/users"}}" class="row">
 <input type="hidden" name="action" value="create">
 <input name="username" placeholder="{{T "username"}}">
 <input type="password" name="password" placeholder="{{T "password"}}">
@@ -361,12 +362,12 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 {{range $u := .Users}}
 <section class="card">
 <h3>{{$u.Name}} <span class="muted">{{$u.Role}}{{if $u.Disabled}} · disabled{{end}}</span></h3>
-<form method="post" action="/users" class="row"><input type="hidden" name="action" value="reset">
+<form method="post" action="{{route "/users"}}" class="row"><input type="hidden" name="action" value="reset">
 <input type="hidden" name="username" value="{{$u.Name}}">
 <input type="password" name="newpass" placeholder="{{T "new_password"}}"><button>{{T "reset"}}</button></form>
-<form method="post" action="/users" class="row"><input type="hidden" name="action" value="toggle">
+<form method="post" action="{{route "/users"}}" class="row"><input type="hidden" name="action" value="toggle">
 <input type="hidden" name="username" value="{{$u.Name}}"><button>{{T "disable"}}</button></form>
-<form method="post" action="/users" class="row"><input type="hidden" name="action" value="acl">
+<form method="post" action="{{route "/users"}}" class="row"><input type="hidden" name="action" value="acl">
 <input type="hidden" name="username" value="{{$u.Name}}">
 {{range $root := $.Cfg.Roots}}<label>{{$root.Name}}
 <select name="acl__{{$u.Name}}__{{$root.Name}}">
@@ -383,7 +384,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 {{define "settings.html"}}{{template "head.html" .}}
 <h1>{{T "settings"}}</h1>
 <p class="muted">{{T "settings_note"}}</p>
-<form method="post" action="/settings" class="row">
+<form method="post" action="{{route "/settings"}}" class="row">
 <input type="hidden" name="action" value="lang">
 <label>{{T "lang"}}
 <select name="lang"><option value="ru" {{if eq .Lang "ru"}}selected{{end}}>Русский</option>
@@ -393,7 +394,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 {{if .User.IsAdmin}}
 <section class="card">
 <h2>{{T "feeds_title"}}</h2>
-<form method="post" action="/settings">
+<form method="post" action="{{route "/settings"}}">
 <input type="hidden" name="action" value="feeds">
 <label><input type="checkbox" name="feeds_enabled" value="true" {{if .Cfg.Feeds.Enabled}}checked{{end}}> {{T "feeds_enable"}}</label>
 <div class="row"><label>{{T "feeds_roots"}}
@@ -439,7 +440,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 
 {{define "shares.html"}}{{template "head.html" .}}
 <h1>Шары</h1>
-<form method="post" action="/shares" class="row">
+<form method="post" action="{{route "/shares"}}" class="row">
 <input type="hidden" name="action" value="create">
 <select name="root">{{range .Roots}}<option value="{{.Name}}">{{.Name}} ({{.Path}})</option>{{end}}</select>
 <input name="path" placeholder="путь (например, Photos)" style="min-width:220px">
@@ -449,15 +450,15 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 <button>Создать ссылку</button>
 </form>
 <div class="table-wrap"><table><tr><th>Ссылка</th><th>Путь</th><th>Истекает</th><th>Пароль</th><th></th></tr>
-{{range .Shares}}<tr><td><a href="/s/{{.Token}}" target="_blank">/s/{{.Token}}</a></td>
+{{range .Shares}}<tr><td><a href="{{route "/s"}}/{{.Token}}" target="_blank">{{route "/s"}}/{{.Token}}</a></td>
 <td>{{.Root}}/{{.Path}}</td><td>{{fmtTime .ExpiresAt}}</td><td>{{if .PasswordHash}}да{{else}}нет{{end}}</td>
-<td><form method="post" action="/shares"><input type="hidden" name="action" value="revoke"><input type="hidden" name="token" value="{{.Token}}"><button>Отозвать</button></form></td></tr>
+<td><form method="post" action="{{route "/shares"}}"><input type="hidden" name="action" value="revoke"><input type="hidden" name="token" value="{{.Token}}"><button>Отозвать</button></form></td></tr>
 {{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "media.html"}}{{template "head.html" .}}
 <h1>Медиа</h1>
-<form method="get" action="/media" class="row">
+<form method="get" action="{{route "/media"}}" class="row">
 <label>Папка: <select name="root">{{range .Cfg.Roots}}<option value="{{.Name}}" {{if eq .Name $.Root}}selected{{end}}>{{.Name}} ({{.Path}})</option>{{end}}</select></label>
 <input name="path" value="{{.Path}}" placeholder="путь внутри (необязательно)" style="min-width:220px">
 <button>Открыть</button>
@@ -477,7 +478,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 
 {{define "backup.html"}}{{template "head.html" .}}
 <h1>Бэкап</h1>
-<form method="post" action="/backup" class="row">
+<form method="post" action="{{route "/backup"}}" class="row">
 <input type="hidden" name="action" value="create">
 <input name="name" placeholder="Название" required>
 <input name="source" placeholder="Исходная папка (сервер)" required style="min-width:240px">
@@ -496,9 +497,9 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 <td>{{if .LastRun.IsZero}}—{{else}}{{fmtTime .LastRun}}{{end}}
 {{with index $.Reports .ID}}<br><span class="muted">файлов: {{.Files}}, байт: {{.Bytes}}, пропущено: {{.Skipped}}, ошибок: {{len .Errors}}</span>{{end}}</td>
 <td>
-<form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="run"><input type="hidden" name="id" value="{{.ID}}"><button>Запустить</button></form>
-<form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{.ID}}"><button>Удалить</button></form>
-<form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="restore"><input type="hidden" name="id" value="{{.ID}}"><input name="dest" placeholder="куда восстановить" style="width:150px"><button>Восстановить</button></form>
+<form method="post" action="{{route "/backup"}}" style="display:inline"><input type="hidden" name="action" value="run"><input type="hidden" name="id" value="{{.ID}}"><button>Запустить</button></form>
+<form method="post" action="{{route "/backup"}}" style="display:inline"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{.ID}}"><button>Удалить</button></form>
+<form method="post" action="{{route "/backup"}}" style="display:inline"><input type="hidden" name="action" value="restore"><input type="hidden" name="id" value="{{.ID}}"><input name="dest" placeholder="куда восстановить" style="width:150px"><button>Восстановить</button></form>
 </td></tr>{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
@@ -506,7 +507,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 <h1>Регистрация</h1>
 {{if .Msg}}<p>{{.Msg}}</p>{{end}}
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
-<form method="post" action="/register">
+<form method="post" action="{{route "/register"}}">
 <label>Логин<br><input name="username" required minlength="3" maxlength="32"></label><br>
 <label>Пароль (минимум 8 символов)<br><input type="password" name="password" required minlength="8"></label><br>
 <button>Отправить заявку</button>
@@ -520,8 +521,8 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 {{if .Pending}}
 <div class="table-wrap"><table><tr><th>Логин</th><th>Создана</th><th></th></tr>
 {{range .Pending}}<tr><td>{{.Name}}</td><td>{{fmtTime .CreatedAt}}</td><td>
-<form method="post" action="/registrations" style="display:inline"><input type="hidden" name="action" value="approve"><input type="hidden" name="id" value="{{.ID}}"><button>Принять</button></form>
-<form method="post" action="/registrations" style="display:inline"><input type="hidden" name="action" value="reject"><input type="hidden" name="id" value="{{.ID}}"><button>Отклонить</button></form>
+<form method="post" action="{{route "/registrations"}}" style="display:inline"><input type="hidden" name="action" value="approve"><input type="hidden" name="id" value="{{.ID}}"><button>Принять</button></form>
+<form method="post" action="{{route "/registrations"}}" style="display:inline"><input type="hidden" name="action" value="reject"><input type="hidden" name="id" value="{{.ID}}"><button>Отклонить</button></form>
 </td></tr>{{end}}</table></div>
 {{else}}<p class="muted">Заявок нет.</p>{{end}}
 {{template "foot.html" .}}{{end}}
@@ -533,12 +534,12 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 <div class="table-wrap"><table><tr><th>Плагин</th><th>Версия</th><th>Тип</th><th>Доступен</th><th>Включён</th><th></th></tr>
 {{range .Plugins}}<tr><td>{{.Name}}<br><span class="muted">{{.Description}}</span></td><td>{{.Version}}</td><td>{{.Kind}}</td>
 <td>{{if .Available}}да{{else}}нет{{end}}</td><td>{{if .Enabled}}да{{else}}нет{{end}}</td>
-<td>{{if .Available}}<form method="post" action="/plugins"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}"><button>{{if .Enabled}}Выключить{{else}}Включить{{end}}</button></form>{{end}}</td></tr>{{end}}</table></div>
+<td>{{if .Available}}<form method="post" action="{{route "/plugins"}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}"><button>{{if .Enabled}}Выключить{{else}}Включить{{end}}</button></form>{{end}}</td></tr>{{end}}</table></div>
 <h2>rclone</h2>
 {{if .Rclone.Installed}}
 <p>Версия: {{.Rclone.Version}}</p>
 <p>Хранилища: {{range .Rclone.Remotes}}{{.}} {{else}}нет{{end}}</p>
-<form method="post" action="/plugins" class="row"><input type="hidden" name="action" value="rclone_sync"><input name="src" placeholder="источник (local или remote:путь)" style="min-width:220px"><input name="dst" placeholder="назначение" style="min-width:220px"><button>rclone sync</button></form>
+<form method="post" action="{{route "/plugins"}}" class="row"><input type="hidden" name="action" value="rclone_sync"><input name="src" placeholder="источник (local или remote:путь)" style="min-width:220px"><input name="dst" placeholder="назначение" style="min-width:220px"><button>rclone sync</button></form>
 {{else}}
 <p class="muted">rclone не установлен. Установите: <code>opkg install rclone</code> (Entware) или <code>apt install rclone</code>.</p>
 {{end}}
@@ -550,7 +551,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 {{if .Msg}}<p>{{.Msg}}</p>{{end}}
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
 <h2>Бэкенд (OpenAI-совместимый)</h2>
-<form method="post" action="/ai" class="row">
+<form method="post" action="{{route "/ai"}}" class="row">
 <input type="hidden" name="action" value="save">
 <input name="base_url" value="{{.Cfg.AIBaseURL}}" placeholder="http://host:8080" style="min-width:240px">
 <input name="model" value="{{.Cfg.AIModel}}" placeholder="model id" style="min-width:220px">
@@ -559,7 +560,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 </form>
 <p class="muted">Ключ хранится в config.json; пусто — без авторизации.</p>
 <h2>Распознать изображение</h2>
-<form method="post" action="/ai" class="row">
+<form method="post" action="{{route "/ai"}}" class="row">
 <input type="hidden" name="action" value="describe">
 <select name="root">{{range .Cfg.Roots}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select>
 <input name="path" placeholder="путь к файлу (например, test.png)" style="min-width:260px">
@@ -572,14 +573,15 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 
 const loginHTML = `{{define "login.html"}}<!doctype html>
 <html lang="{{.Lang}}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mounvix — {{T "login"}}</title><script src="/theme.js"></script><link rel="stylesheet" href="/style.css"></head>
+<title>Mounvix — {{T "login"}}</title><script src="{{.ThemePath}}"></script><link rel="stylesheet" href="{{.StylePath}}"></head>
 <body class="auth-page"><a class="skip-link" href="#main-content">{{T "skip_content"}}</a>
-<header class="auth-toolbar"><a class="brand" href="/">Mounvix</a>{{template "themeControl.html" .}}</header>
+<header class="auth-toolbar"><a class="brand" href="{{.HomePath}}">Mounvix</a>{{template "themeControl.html" .}}</header>
 <main class="auth-main" id="main-content" tabindex="-1"><section class="auth-card" aria-labelledby="auth-title">
 <h1 id="auth-title">Mounvix</h1>
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
-<p><a href="/register">Регистрация</a></p>
-<form method="post" action="/login">
+<p><a href="{{.RegisterPath}}">Регистрация</a></p>
+<form method="post" action="{{.LoginPath}}">
+<input type="hidden" name="next" value="{{.Next}}">
 <label>{{T "username"}}<br><input name="username" autofocus required></label><br>
 <label>{{T "password"}}<br><input type="password" name="password" required></label><br>
 <button>{{T "signin"}}</button>

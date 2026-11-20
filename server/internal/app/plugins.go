@@ -43,7 +43,7 @@ func (a *App) setPluginEnabled(actor, id string, enabled bool) error {
 func (a *App) handlePluginsPage(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.cookieUser(r)
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/login"), http.StatusSeeOther)
 		return
 	}
 	if !u.IsAdmin() {
