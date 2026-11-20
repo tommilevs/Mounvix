@@ -44,6 +44,178 @@ func TestManifestsAndState(t *testing.T) {
 	}
 }
 
+func TestRegistryPackagePrecedenceAndSourceSpecificState(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "system-plugins")
+	legacyDir := filepath.Join(dir, "plugins")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"id":"demo","name":"Legacy Demo","version":"1.0","kind":"process","command":"/bin/true"}`
+	if err := os.WriteFile(filepath.Join(legacyDir, "demo.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugins-state.json"), []byte(`{"enabled":["demo","rclone","future-plugin"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkgDir := filepath.Join(root, "demo")
+	if err := os.MkdirAll(filepath.Join(pkgDir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "bin", "demo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	packageManifest := `{"id":"demo","name":"Package Demo","version":"2.0.0","api":1,"author":"A","description":"D","executable":"bin/demo"}`
+	if err := os.WriteFile(filepath.Join(pkgDir, "plugin.json"), []byte(packageManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := NewRegistry(dir, root, "1.0.0", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := r.List()
+	var effective *Plugin
+	for _, p := range list {
+		if p.ID == "demo" {
+			effective = p
+		}
+	}
+	if effective == nil || effective.Name != "Package Demo" || effective.Source != SourcePackage || effective.Enabled {
+		t.Fatalf("effective package: %+v", effective)
+	}
+	legacyEntry, ok := r.LookupSource("demo", SourceLegacy)
+	if !ok || legacyEntry.Name != "Legacy Demo" || !legacyEntry.Enabled {
+		t.Fatalf("shadowed legacy entry not preserved: %+v %v", legacyEntry, ok)
+	}
+	if _, ok := r.LookupSource("future-plugin", SourceLegacy); ok {
+		t.Fatal("unknown id unexpectedly loaded as a plugin")
+	}
+	if err := r.SetSourceEnabled("demo", SourcePackage, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetSourceEnabled("demo", SourceLegacy, false); err != nil {
+		t.Fatal(err)
+	}
+	r2, err := NewRegistry(dir, root, "1.0.0", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, _ := r2.LookupSource("demo", SourcePackage)
+	old, _ := r2.LookupSource("demo", SourceLegacy)
+	if !pkg.Enabled || old.Enabled {
+		t.Fatalf("source state was not independent: package=%+v legacy=%+v", pkg, old)
+	}
+	if err := r2.SetSourceEnabled("demo", SourceLegacy, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := r2.RemovePackage("demo", false); err == nil {
+		t.Fatal("unconfirmed enabled legacy fallback accepted")
+	}
+	if err := r2.RemovePackage("demo", true); err != nil {
+		t.Fatalf("confirmed removal: %v", err)
+	}
+	fallback := r2.List()
+	for _, p := range fallback {
+		if p.ID == "demo" {
+			if p.Source != SourceLegacy || !p.Enabled {
+				t.Fatalf("legacy fallback not revealed: %+v", p)
+			}
+			return
+		}
+	}
+	t.Fatal("legacy fallback missing after package removal")
+}
+
+func TestRegistryLegacyStateMigrationIsReadOnlyUntilMutation(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "plugins"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugins", "known.json"), []byte(`{"id":"known","name":"Known","version":"1","kind":"process"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldState := []byte(`{"enabled":["known","rclone","unknown"]}`)
+	statePath := filepath.Join(dir, "plugins-state.json")
+	if err := os.WriteFile(statePath, oldState, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(dir, "", "1.0.0", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(oldState) {
+		t.Fatal("legacy state rewritten during load")
+	}
+	if _, ok := r.LookupSource("unknown", SourceLegacy); ok {
+		t.Fatal("unknown legacy ID should be preserved in state, not loaded as a manifest")
+	}
+	if builtin, ok := r.LookupSource("rclone", SourceBuiltin); !ok || !builtin.Enabled {
+		t.Fatalf("old rclone ID was not migrated to builtin: %+v", builtin)
+	}
+	if err := r.SetSourceEnabled("known", SourceLegacy, false); err != nil {
+		t.Fatal(err)
+	}
+	var state map[string]any
+	got, err = os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(got, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state["version"] != float64(2) {
+		t.Fatalf("state version=%v", state["version"])
+	}
+	if _, ok := state["package_enabled"]; !ok {
+		t.Fatal("package_enabled missing in v2 state")
+	}
+	if _, ok := state["builtin_enabled"]; !ok {
+		t.Fatal("builtin_enabled missing in v2 state")
+	}
+	legacyIDs, _ := state["enabled"].([]any)
+	foundUnknown := false
+	for _, id := range legacyIDs {
+		if id == "unknown" {
+			foundUnknown = true
+		}
+	}
+	if !foundUnknown {
+		t.Fatal("unknown legacy ID was discarded")
+	}
+}
+
+func TestRegistryLegacyRcloneStateMapsToLegacySource(t *testing.T) {
+	dir := t.TempDir()
+	legacyDir := filepath.Join(dir, "plugins")
+	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"id":"rclone","name":"Legacy rclone","version":"1.0","kind":"process"}`
+	if err := os.WriteFile(filepath.Join(legacyDir, "rclone.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plugins-state.json"), []byte(`{"enabled":["rclone"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(dir, "", "1.0.0", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyEntry, ok := r.LookupSource("rclone", SourceLegacy)
+	if !ok || !legacyEntry.Enabled {
+		t.Fatalf("legacy rclone state not preserved: %+v", legacyEntry)
+	}
+	builtin, ok := r.LookupSource("rclone", SourceBuiltin)
+	if !ok || builtin.Enabled {
+		t.Fatalf("legacy rclone state incorrectly enabled builtin: %+v", builtin)
+	}
+}
+
 func TestRcloneDetection(t *testing.T) {
 	bin := t.TempDir()
 	script := "#!/bin/sh\nif [ \"$1\" = version ]; then echo 'rclone v9.9.9-test'; fi\nif [ \"$1\" = listremotes ]; then echo 'gdrive:'; echo 'yandex:'; fi\n"
@@ -62,7 +234,6 @@ func TestRcloneDetection(t *testing.T) {
 	if len(st.Remotes) != 2 || st.Remotes[0] != "gdrive" || st.Remotes[1] != "yandex" {
 		t.Fatalf("remotes: %+v", st.Remotes)
 	}
-	// Встроенный плагин должен быть доступен при наличии бинарника.
 	for _, p := range r.List() {
 		if p.ID == "rclone" && !p.Available {
 			t.Fatal("rclone builtin unavailable despite binary")

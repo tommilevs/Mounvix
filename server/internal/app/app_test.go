@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tommilevs/Mounvix/server/internal/plugins"
 )
 
 func newTestApp(t *testing.T) (*App, string) {
@@ -180,4 +182,49 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func TestNewLoadsPackagesFromConfiguredPluginDir(t *testing.T) {
+	base := t.TempDir()
+	dataDir := filepath.Join(base, "data")
+	pluginRoot := filepath.Join(base, "system-plugins")
+	pkgDir := filepath.Join(pluginRoot, "demo")
+	if err := os.MkdirAll(filepath.Join(pkgDir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "bin", "demo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"id":"demo","name":"Demo","version":"1.0.0","api":1,"author":"test","description":"test plugin","executable":"bin/demo"}`
+	if err := os.WriteFile(filepath.Join(pkgDir, "plugin.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	cfg.DataDir = dataDir
+	cfg.PluginDir = pluginRoot
+	a, err := New(cfg, filepath.Join(base, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := a.pluginReg.LookupSource("demo", plugins.SourcePackage); !ok {
+		t.Fatal("configured package plugin root was not loaded")
+	}
+}
+
+func TestNewRejectsUnsafePublicConfig(t *testing.T) {
+	tests := []struct{ name, basePath, scheme string }{
+		{"base path", "/public/../admin", ""},
+		{"scheme", "", "javascript"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.DataDir = filepath.Join(t.TempDir(), "data")
+			cfg.PublicBasePath = tt.basePath
+			cfg.PublicScheme = tt.scheme
+			if _, err := New(cfg, filepath.Join(cfg.DataDir, "config.json")); err == nil {
+				t.Fatal("unsafe public configuration accepted")
+			}
+		})
+	}
 }

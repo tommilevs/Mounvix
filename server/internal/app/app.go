@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,12 @@ func (a *App) configSnapshot() Config {
 }
 
 func New(cfg Config, cfgPath string) (*App, error) {
+	if err := validatePublicBasePath(cfg.PublicBasePath); err != nil {
+		return nil, err
+	}
+	if err := validatePublicScheme(cfg.PublicScheme); err != nil {
+		return nil, err
+	}
 	st, err := NewStore(cfg.DataDir)
 	if err != nil {
 		return nil, err
@@ -57,7 +64,7 @@ func New(cfg Config, cfgPath string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	pl, err := plugins.New(cfg.DataDir)
+	pl, err := plugins.NewRegistry(cfg.DataDir, pluginDirForConfig(cfg, cfgPath, cfg.DataDir), version.Version, runtime.GOARCH)
 	if err != nil {
 		return nil, err
 	}
