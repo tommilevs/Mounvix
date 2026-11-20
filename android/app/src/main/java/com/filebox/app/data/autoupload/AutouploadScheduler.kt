@@ -15,12 +15,12 @@ import java.util.concurrent.TimeUnit
 /** Планирование автозагрузки через WorkManager. */
 object AutouploadScheduler {
 
-    private const val PERIODIC = "mounvix-autoupload"
-    private const val ONCE = "mounvix-autoupload-now"
+    internal const val PERIODIC_UNIQUE_WORK = "mounvix-autoupload"
+    internal const val RUN_NOW_UNIQUE_WORK = "mounvix-autoupload-now"
 
     fun schedule(ctx: Context) {
         WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
-            PERIODIC,
+            PERIODIC_UNIQUE_WORK,
             ExistingPeriodicWorkPolicy.UPDATE,
             periodicRequest()
         )
@@ -31,11 +31,11 @@ object AutouploadScheduler {
         .build()
 
     fun cancel(ctx: Context) {
-        WorkManager.getInstance(ctx).cancelUniqueWork(PERIODIC)
+        WorkManager.getInstance(ctx).cancelUniqueWork(PERIODIC_UNIQUE_WORK)
     }
 
     fun runNow(ctx: Context) {
-        WorkManager.getInstance(ctx).enqueueUniqueWork(ONCE, ExistingWorkPolicy.REPLACE, runNowRequest())
+        WorkManager.getInstance(ctx).enqueueUniqueWork(RUN_NOW_UNIQUE_WORK, ExistingWorkPolicy.REPLACE, runNowRequest())
     }
 
     internal fun runNowRequest() = OneTimeWorkRequestBuilder<AutouploadWorker>()

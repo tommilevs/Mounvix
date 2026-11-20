@@ -25,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,10 +81,13 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
     var busySftp by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val transfers by viewModel.transfers.collectAsState()
+    val autouploadStatusViewModel: AutouploadStatusViewModel = viewModel(
+        factory = AutouploadStatusViewModel.Factory(context)
+    )
+    val autouploadStatus by autouploadStatusViewModel.uiState.collectAsStateWithLifecycle()
     var autoOn by rememberSaveable { mutableStateOf(prefs.getBoolean("autoupload_enabled", false)) }
     var autoDest by rememberSaveable { mutableStateOf(prefs.getString("autoupload_dest", "Mounvix") ?: "Mounvix") }
     var autoTreeName by rememberSaveable { mutableStateOf(prefs.getString("autoupload_tree_name", "") ?: "") }
-    var autoStatus by remember { mutableStateOf(prefs.getString("autoupload_status", "—") ?: "—") }
     var aiBase by rememberSaveable { mutableStateOf(prefs.getString("ai_base", "") ?: "") }
     var aiModel by rememberSaveable { mutableStateOf(prefs.getString("ai_model", "") ?: "") }
     var aiKey by rememberSaveable { mutableStateOf(prefs.getString("ai_key", "") ?: "") }
@@ -319,7 +324,7 @@ fun WebDavScreen(viewModel: MounvixViewModel, onConnected: () -> Unit) {
                 AutouploadScheduler.runNow(context)
                 Toast.makeText(context, "Автозагрузка запущена", Toast.LENGTH_SHORT).show()
             }, modifier = Modifier.fillMaxWidth()) { Text("Запустить автозагрузку сейчас") }
-            Text("Статус: $autoStatus", style = MaterialTheme.typography.bodySmall)
+            AutouploadStatusSection(autouploadStatus)
             Text("AI-распознавание", style = MaterialTheme.typography.headlineSmall)
             OutlinedTextField(
                 value = aiBase, onValueChange = { aiBase = it },
