@@ -368,12 +368,20 @@ func boolIDs(in map[string]bool) []string {
 	return out
 }
 func (r *Registry) RcloneSync(ctx context.Context, src, dst string) (string, error) {
+	if ctx == nil {
+		return "", errors.New("rclone context is required")
+	}
 	if src == "" || dst == "" {
 		return "", errors.New("src and dst required")
 	}
 	if strings.HasPrefix(src, "-") || strings.HasPrefix(dst, "-") {
 		return "", errors.New("path must not start with '-'")
 	}
+	release, err := SharedProcessGate().Acquire(ctx, false)
+	if err != nil {
+		return "", fmt.Errorf("acquire rclone process gate: %w", err)
+	}
+	defer release()
 	path, err := exec.LookPath("rclone")
 	if err != nil {
 		return "", errors.New("rclone not installed")
@@ -398,20 +406,30 @@ func (r *Registry) RcloneStatus() RcloneStatus {
 		return RcloneStatus{Installed: false}
 	}
 	st := RcloneStatus{Installed: true}
-	if out, err := exec.Command(path, "version").Output(); err == nil {
+	release, err := SharedProcessGate().Acquire(context.Background(), false)
+	if err != nil {
+		st.Error = err.Error()
+		return st
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, path, "version").Output(); err == nil {
 		if line := strings.SplitN(string(out), "\n", 2)[0]; line != "" {
 			st.Version = strings.TrimSpace(line)
 		}
 	} else {
 		st.Error = err.Error()
 	}
-	if out, err := exec.Command(path, "listremotes").Output(); err == nil {
+	if out, err := exec.CommandContext(ctx, path, "listremotes").Output(); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			line = strings.TrimSpace(line)
 			if line != "" {
 				st.Remotes = append(st.Remotes, strings.TrimSuffix(line, ":"))
 			}
 		}
+	} else if st.Error == "" {
+		st.Error = err.Error()
 	}
 	return st
 }

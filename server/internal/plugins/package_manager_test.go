@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 type recordedCommand struct {
@@ -19,11 +20,15 @@ type recordedCommand struct {
 }
 
 type recordingCommandRunner struct {
-	calls []recordedCommand
+	calls   []recordedCommand
+	started chan struct{}
 }
 
 func (r *recordingCommandRunner) Run(_ context.Context, program string, args ...string) error {
 	r.calls = append(r.calls, recordedCommand{program: program, args: append([]string(nil), args...)})
+	if r.started != nil {
+		r.started <- struct{}{}
+	}
 	return nil
 }
 
@@ -92,6 +97,57 @@ func TestPackageInstallerUsesFixedPlatformCommands(t *testing.T) {
 			}
 			if runner.calls[1].program != tt.manager || !reflect.DeepEqual(runner.calls[1].args, tt.remove) {
 				t.Fatalf("remove command=%+v", runner.calls[1])
+			}
+		})
+	}
+}
+
+func TestPackageInstallerWaitsForSharedProcessGate(t *testing.T) {
+	for _, operation := range []string{"install", "remove"} {
+		t.Run(operation, func(t *testing.T) {
+			releaseGate, err := SharedProcessGate().Acquire(context.Background(), false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			gateReleased := false
+			defer func() {
+				if !gateReleased {
+					releaseGate()
+				}
+			}()
+
+			runner := &recordingCommandRunner{started: make(chan struct{}, 1)}
+			metadata := fixedMetadataReader{metadata: PackageMetadata{Package: "demo", Version: "1.0.0", Architecture: "aarch64", PluginID: "demo", PluginVersion: "1.0.0"}}
+			installer := newPackageInstaller("/opt/etc/mounvix/config.json", runner, metadata)
+			artifact := makeTestVerifiedArtifact(t, "ipk", "demo", "1.0.0", "aarch64")
+			completed := make(chan error, 1)
+			go func() {
+				if operation == "install" {
+					completed <- installer.Install(context.Background(), "demo", artifact)
+					return
+				}
+				completed <- installer.Remove(context.Background(), "demo")
+			}()
+
+			select {
+			case <-runner.started:
+				t.Fatal("package-manager command ran while another child operation held the gate")
+			case err := <-completed:
+				t.Fatalf("package operation completed before gate release: %v", err)
+			case <-time.After(30 * time.Millisecond):
+			}
+			releaseGate()
+			gateReleased = true
+			select {
+			case err := <-completed:
+				if err != nil {
+					t.Fatalf("package operation after gate release: %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("package operation did not continue after gate release")
+			}
+			if len(runner.calls) != 1 {
+				t.Fatalf("commands = %+v, want one package-manager call", runner.calls)
 			}
 		})
 	}

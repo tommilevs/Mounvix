@@ -35,6 +35,7 @@ type Manifest struct {
 	Hooks          []string        `json:"hooks,omitempty"`
 	Endpoints      []Endpoint      `json:"endpoints,omitempty"`
 	Executable     string          `json:"executable,omitempty"`
+	RuntimeMethods []string        `json:"runtime_methods,omitempty"`
 }
 
 type Capabilities struct {
@@ -194,6 +195,16 @@ func (m Manifest) Validate(appVersion, arch string) error {
 		if !allowedHook(hook) {
 			return fmt.Errorf("unsupported hook %q", hook)
 		}
+	}
+	seenMethods := map[string]bool{}
+	for _, method := range m.RuntimeMethods {
+		if !supportedRuntimeMethod(method) {
+			return fmt.Errorf("unsupported runtime method %q", method)
+		}
+		if seenMethods[method] {
+			return fmt.Errorf("duplicate runtime method %q", method)
+		}
+		seenMethods[method] = true
 	}
 	if len(m.SettingsSchema) != 0 && !json.Valid(m.SettingsSchema) {
 		return errors.New("settings_schema must be valid JSON")

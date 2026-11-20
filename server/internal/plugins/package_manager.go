@@ -480,6 +480,11 @@ func (installer *PackageInstaller) Install(ctx context.Context, verifiedID strin
 	if !strings.EqualFold(digest, artifact.SHA256) {
 		return errors.New("verified artifact changed after download")
 	}
+	release, err := SharedProcessGate().Acquire(ctx, true)
+	if err != nil {
+		return fmt.Errorf("acquire package process gate: %w", err)
+	}
+	defer release()
 	metadata, err := installer.metadata.Read(ctx, artifact.Path, artifact.Format, verifiedID, artifact.AppVersion, runtime.GOARCH)
 	if err != nil {
 		return fmt.Errorf("read package metadata: %w", err)
@@ -522,6 +527,11 @@ func (installer *PackageInstaller) Remove(ctx context.Context, verifiedID string
 	default:
 		return errors.New("package mutations are disabled for this platform")
 	}
+	release, err := SharedProcessGate().Acquire(ctx, true)
+	if err != nil {
+		return fmt.Errorf("acquire package process gate: %w", err)
+	}
+	defer release()
 	if err := installer.runner.Run(ctx, installer.managerPath, args...); err != nil {
 		return fmt.Errorf("remove verified package: %w", err)
 	}
