@@ -12,7 +12,8 @@ import androidx.room.RoomDatabase
         AutouploadReceipt::class,
         AutouploadAttempt::class,
         AutouploadLegacyCutoff::class,
-        AutouploadRunState::class
+        AutouploadRunState::class,
+        ServerEventCursor::class,
     ],
     version = 2
 )
@@ -21,6 +22,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun favoritesDao(): FavoritesDao
     abstract fun recentsDao(): RecentsDao
     abstract fun autouploadDao(): AutouploadDao
+    abstract fun serverEventCursorDao(): ServerEventCursorDao
 
     companion object {
         @Volatile

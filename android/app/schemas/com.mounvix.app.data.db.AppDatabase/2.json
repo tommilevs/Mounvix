@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 2,
-    "identityHash": "b46607d67b0570ad7becf0980ba5a2d9",
+    "identityHash": "d6cc44a395ac37becf5c6e2bbc5ba59c",
     "entities": [
       {
         "tableName": "favorites",
@@ -395,12 +395,44 @@
         },
         "indices": [],
         "foreignKeys": []
+      },
+      {
+        "tableName": "server_event_cursors",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`server_key` TEXT NOT NULL, `last_seq` INTEGER NOT NULL, `updated_at_ms` INTEGER NOT NULL, PRIMARY KEY(`server_key`))",
+        "fields": [
+          {
+            "fieldPath": "serverKey",
+            "columnName": "server_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeq",
+            "columnName": "last_seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtMs",
+            "columnName": "updated_at_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "server_key"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
       }
     ],
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b46607d67b0570ad7becf0980ba5a2d9')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'd6cc44a395ac37becf5c6e2bbc5ba59c')"
     ]
   }
 }

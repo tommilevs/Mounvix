@@ -72,6 +72,16 @@ object AutouploadMigrations {
                 )
                 """.trimIndent()
             )
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `server_event_cursors` (
+                    `server_key` TEXT NOT NULL,
+                    `last_seq` INTEGER NOT NULL,
+                    `updated_at_ms` INTEGER NOT NULL,
+                    PRIMARY KEY(`server_key`)
+                )
+                """.trimIndent()
+            )
         }
     }
 }
