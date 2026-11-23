@@ -1,6 +1,7 @@
 package com.mounvix.app.data.feed
 
 import java.io.IOException
+import java.net.URI
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +64,7 @@ class FeedApi(
                 .toString()
                 .toRequestBody(JSON_MEDIA_TYPE)
             val request = Request.Builder()
-                .url(endpoint(profile, "/api/v1/session"))
+                .url(serverEndpoint(profile, "/api/v1/session"))
                 .post(body)
                 .build()
             val response = executeOnce(request)
@@ -82,8 +83,7 @@ class FeedApi(
     suspend fun getFeeds(since: String?, limit: Int): FeedPage {
         require(limit in 1..MAX_LIMIT) { "limit must be between 1 and $MAX_LIMIT" }
         val profile = requireActiveProfile()
-        val url = serverRoot(profile).newBuilder()
-            .encodedPath("/api/v1/feeds")
+        val url = serverEndpoint(profile, "/api/v1/feeds").newBuilder()
             .apply {
                 if (!since.isNullOrBlank()) addQueryParameter("since", since)
                 addQueryParameter("limit", limit.toString())
@@ -102,8 +102,7 @@ class FeedApi(
         }
         return try {
             val profile = requireActiveProfile()
-            val url = serverRoot(profile).newBuilder()
-                .encodedPath("/api/v1/feeds")
+            val url = serverEndpoint(profile, "/api/v1/feeds").newBuilder()
                 .addPathSegment(id)
                 .addPathSegment("read")
                 .build()
@@ -130,12 +129,33 @@ class FeedApi(
             "unsupported media URL"
         }
         val profile = requireActiveProfile()
-        val url = serverRoot(profile).resolve(relativeUrl)
-            ?: throw IllegalArgumentException("invalid media URL")
+        val url = serverEndpoint(profile, relativeUrl)
         val request = Request.Builder().url(url).get().build()
         val response = executeWithReauthentication(request)
         response.requireSuccess("fetch media")
         return response.body
+    }
+
+    /** Fetch a bounded page from the independent M7 server-job notification inbox. */
+    suspend fun getServerNotifications(after: Long?, limit: Int = DEFAULT_NOTIFICATION_LIMIT): ServerNotificationsPage {
+        require(limit in 1..MAX_LIMIT) { "limit must be between 1 and $MAX_LIMIT" }
+        require(after == null || after >= 0) { "notification cursor must not be negative" }
+
+        val profile = requireActiveProfile()
+        val url = serverEndpoint(profile, "/api/v1/notifications").newBuilder()
+            .apply {
+                if (after != null) addQueryParameter("after", after.toString())
+                addQueryParameter("limit", limit.toString())
+            }
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Origin", serverOrigin(profile))
+            .get()
+            .build()
+        val response = executeWithReauthentication(request)
+        response.requireSuccess("fetch server notifications")
+        return parseServerNotificationsPage(response.body.decodeToString(), after, limit)
     }
 
     /** Replace the current profile and clear cookies when the identity changes. */
@@ -197,6 +217,121 @@ class FeedApi(
         return FeedPage(items, nextSince)
     }
 
+    private fun parseServerNotificationsPage(
+        text: String,
+        after: Long?,
+        limit: Int,
+    ): ServerNotificationsPage {
+        val json = try {
+            JSONObject(text)
+        } catch (error: Exception) {
+            throw IOException("invalid Mounvix server notification response", error)
+        }
+        val array = json.opt("items") as? org.json.JSONArray
+            ?: throw IOException("Mounvix server notification response omitted items")
+        val items = (0 until array.length()).map { index ->
+            val item = array.optJSONObject(index)
+                ?: throw IOException("Mounvix server notification item was invalid")
+            val notification = ServerNotification(
+                eventId = item.requiredString("event_id"),
+                seq = item.requiredLong("seq"),
+                createdAt = item.requiredString("created_at"),
+                kind = item.requiredString("kind"),
+                summary = item.requiredString("summary"),
+                targetRoute = validateNotificationTargetRoute(item.requiredString("target_route")),
+                isRead = item.requiredBoolean("is_read"),
+            )
+            if (notification.seq <= 0) throw IOException("Mounvix notification sequence was invalid")
+            notification
+        }
+        val nextCursor = json.requiredLong("next_cursor")
+        val beforeCursor = json.optionalLong("before_cursor")
+        val reset = json.requiredBoolean("reset")
+        val oldestSeq = json.requiredLong("oldest_seq")
+        val latestSeq = json.requiredLong("latest_seq")
+        val unreadCount = json.requiredInt("unread_count")
+
+        if (items.size > limit || oldestSeq < 0 || latestSeq < 0 || unreadCount < 0 ||
+            (oldestSeq > 0 && oldestSeq > latestSeq) || nextCursor < 0 || nextCursor > latestSeq ||
+            beforeCursor != null && beforeCursor < 0
+        ) {
+            throw IOException("Mounvix server notification cursor metadata was invalid")
+        }
+        if (items.any { it.seq > latestSeq || oldestSeq > 0 && it.seq < oldestSeq }) {
+            throw IOException("Mounvix server notification sequence was outside the retained range")
+        }
+        if (reset) {
+            if (items.isNotEmpty() || nextCursor != latestSeq) {
+                throw IOException("Mounvix server notification reset page was inconsistent")
+            }
+        } else if (after == null) {
+            if (nextCursor != latestSeq || items.zipWithNext().any { (left, right) -> left.seq <= right.seq }) {
+                throw IOException("Mounvix server notification page order was invalid")
+            }
+        } else {
+            if (nextCursor < after || items.any { it.seq <= after } ||
+                items.zipWithNext().any { (left, right) -> left.seq >= right.seq } ||
+                items.lastOrNull()?.seq?.let { it != nextCursor } == true ||
+                items.isEmpty() && nextCursor != latestSeq
+            ) {
+                throw IOException("Mounvix server notification cursor regressed or page order was invalid")
+            }
+        }
+
+        return ServerNotificationsPage(items, nextCursor, beforeCursor, reset, oldestSeq, latestSeq, unreadCount)
+    }
+
+    private fun validateNotificationTargetRoute(route: String): String {
+        if (!route.startsWith("/") || route.startsWith("//") || route.contains('\\')) {
+            throw IOException("Mounvix notification target route was not relative")
+        }
+        val uri = try {
+            URI(route)
+        } catch (error: Exception) {
+            throw IOException("Mounvix notification target route was invalid", error)
+        }
+        if (uri.isAbsolute || uri.rawAuthority != null || uri.rawPath?.startsWith("/") != true || uri.rawFragment != null) {
+            throw IOException("Mounvix notification target route was not same-origin relative")
+        }
+        return route
+    }
+
+    private fun JSONObject.requiredString(key: String): String {
+        if (!has(key)) throw IOException("Mounvix server notification response omitted $key")
+        val value = opt(key) as? String
+            ?: throw IOException("Mounvix server notification field $key was invalid")
+        if (value.isBlank()) throw IOException("Mounvix server notification field $key was blank")
+        return value
+    }
+
+    private fun JSONObject.requiredLong(key: String): Long {
+        if (!has(key)) throw IOException("Mounvix server notification response omitted $key")
+        val number = opt(key) as? Number
+            ?: throw IOException("Mounvix server notification field $key was invalid")
+        val value = number.toDouble()
+        if (!value.isFinite() || value < 0 || value > Long.MAX_VALUE.toDouble() || value != value.toLong().toDouble()) {
+            throw IOException("Mounvix server notification field $key was not a non-negative integer")
+        }
+        return number.toLong()
+    }
+
+    private fun JSONObject.optionalLong(key: String): Long? {
+        if (!has(key)) throw IOException("Mounvix server notification response omitted $key")
+        return if (opt(key) == JSONObject.NULL) null else requiredLong(key)
+    }
+
+    private fun JSONObject.requiredInt(key: String): Int {
+        val value = requiredLong(key)
+        if (value > Int.MAX_VALUE) throw IOException("Mounvix server notification field $key was out of range")
+        return value.toInt()
+    }
+
+    private fun JSONObject.requiredBoolean(key: String): Boolean {
+        if (!has(key)) throw IOException("Mounvix server notification response omitted $key")
+        return opt(key) as? Boolean
+            ?: throw IOException("Mounvix server notification field $key was invalid")
+    }
+
     private fun HttpResult.requireSuccess(operation: String) {
         if (code !in 200..299) {
             val detail = body.decodeToString().take(MAX_ERROR_CHARS)
@@ -204,24 +339,39 @@ class FeedApi(
         }
     }
 
-    private fun endpoint(profile: FeedProfile, path: String): HttpUrl =
-        serverRoot(profile).newBuilder().encodedPath(path).build()
-
-    private fun serverRoot(profile: FeedProfile): HttpUrl {
-        val url = profile.baseUrl.trim().toHttpUrlOrNull()
-            ?: throw IllegalArgumentException("invalid Mounvix server URL")
-        require(url.scheme == "http" || url.scheme == "https") { "server URL must use HTTP or HTTPS" }
-        require(url.username.isEmpty() && url.password.isEmpty() && url.query == null && url.fragment == null) {
-            "server URL must not contain credentials, query, or fragment"
+    private fun serverEndpoint(profile: FeedProfile, apiPath: String): HttpUrl {
+        require(apiPath.startsWith("/") && !apiPath.startsWith("//") && !apiPath.contains('\\') && !apiPath.contains('#')) {
+            "server API path must be a relative path"
         }
-        return url
+        val root = serverRoot(profile)
+        val endpoint = root.resolve(apiPath.removePrefix("/"))
+            ?: throw IllegalArgumentException("invalid Mounvix API path")
+        require(
+            endpoint.scheme == root.scheme && endpoint.host == root.host && endpoint.port == root.port &&
+                endpoint.encodedPath.startsWith(root.encodedPath)
+        ) { "Mounvix API path escaped the configured base path" }
+        return endpoint
     }
+
+    private fun serverOrigin(profile: FeedProfile): String = serverRoot(profile)
+        .newBuilder()
+        .encodedPath("/")
+        .query(null)
+        .fragment(null)
+        .build()
+        .toString()
+        .trimEnd('/')
+
+    private fun serverRoot(profile: FeedProfile): HttpUrl =
+        normalizeMounvixBaseUrl(profile.baseUrl).toHttpUrlOrNull()
+            ?: throw IllegalArgumentException("invalid Mounvix server URL")
 
     private data class HttpResult(val code: Int, val body: ByteArray)
 
     companion object {
         private const val HTTP_UNAUTHORIZED = 401
         private const val MAX_LIMIT = 100
+        private const val DEFAULT_NOTIFICATION_LIMIT = 100
         private const val MAX_ID_LENGTH = 200
         private const val MAX_ERROR_CHARS = 200
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
