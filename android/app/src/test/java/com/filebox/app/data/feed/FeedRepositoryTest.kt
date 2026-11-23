@@ -16,6 +16,7 @@ class FeedRepositoryTest {
     private lateinit var preferences: MemoryPreferences
     private lateinit var repository: FeedRepository
     private lateinit var profile: FeedProfile
+    private lateinit var secretStore: InMemoryProfileSecretStore
 
     @Before
     fun setUp() {
@@ -24,7 +25,8 @@ class FeedRepositoryTest {
         preferences = MemoryPreferences()
         profile = FeedProfile(server.url("/").toString().trimEnd('/'), "alice", "secret")
         val api = FeedApi(OkHttpClient.Builder().cookieJar(FeedCookieJar()).build())
-        repository = FeedRepository(api, preferences)
+        secretStore = InMemoryProfileSecretStore()
+        repository = FeedRepository(api, preferences, secretStore)
         repository.saveProfile(profile)
     }
 

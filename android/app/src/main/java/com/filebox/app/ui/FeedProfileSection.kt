@@ -14,6 +14,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +31,7 @@ import com.mounvix.app.data.feed.FeedProfile
 import com.mounvix.app.data.feed.FeedRepository
 import com.mounvix.app.data.feed.FeedScheduler
 import com.mounvix.app.data.feed.FeedWorker
+import com.mounvix.app.data.feed.normalizeMounvixBaseUrl
 import java.time.LocalTime
 import kotlinx.coroutines.launch
 
@@ -41,13 +43,16 @@ fun FeedProfileSection(modifier: Modifier = Modifier) {
         context.getSharedPreferences("mounvix_prefs", Context.MODE_PRIVATE)
     }
     val repository = remember { FeedRepository.from(context.applicationContext) }
-    val savedProfile = remember { repository.loadProfile() }
+    val savedIdentity = remember { repository.loadProfile()?.let { it.baseUrl to it.username } }
     val scope = rememberCoroutineScope()
 
-    var baseUrl by rememberSaveable { mutableStateOf(savedProfile?.baseUrl.orEmpty()) }
-    var username by rememberSaveable { mutableStateOf(savedProfile?.username.orEmpty()) }
-    var password by rememberSaveable { mutableStateOf(savedProfile?.password.orEmpty()) }
-    var hasProfile by rememberSaveable { mutableStateOf(savedProfile != null) }
+    var baseUrl by rememberSaveable { mutableStateOf(savedIdentity?.first.orEmpty()) }
+    var username by rememberSaveable { mutableStateOf(savedIdentity?.second.orEmpty()) }
+    var password by remember { mutableStateOf("") }
+    var hasProfile by rememberSaveable { mutableStateOf(savedIdentity != null) }
+    var needsReauthentication by rememberSaveable {
+        mutableStateOf(savedIdentity == null && repository.hasStoredProfileIdentity())
+    }
     var notificationsEnabled by rememberSaveable {
         mutableStateOf(preferences.getBoolean(FeedWorker.NOTIFICATIONS_ENABLED, false))
     }
@@ -60,6 +65,10 @@ fun FeedProfileSection(modifier: Modifier = Modifier) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose { password = "" }
+    }
 
     fun updateSchedule(enabled: Boolean) {
         if (enabled && repository.loadProfile() != null) {
@@ -120,31 +129,63 @@ fun FeedProfileSection(modifier: Modifier = Modifier) {
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
         )
+        if (hasProfile) {
+            Text("Сохранённый пароль не отображается; оставьте поле пустым для проверки.", style = MaterialTheme.typography.bodySmall)
+        }
+        if (needsReauthentication) {
+            Text("Пароль не удалось безопасно восстановить. Введите его повторно.", color = MaterialTheme.colorScheme.error)
+        }
         Button(
             enabled = !busy,
             onClick = {
                 error = null
                 message = null
-                if (baseUrl.isBlank() || username.isBlank() || password.isBlank()) {
-                    error = "Заполните адрес сервера, логин и пароль"
+                if (baseUrl.isBlank() || username.isBlank()) {
+                    error = "Заполните адрес сервера и логин"
+                    return@Button
+                }
+                val normalizedUrl = runCatching { normalizeMounvixBaseUrl(baseUrl) }.getOrNull()
+                if (normalizedUrl == null) {
+                    error = "Введите корректный HTTP или HTTPS адрес без логина, query и fragment"
                     return@Button
                 }
                 if (!saveQuietHours(showMessage = false)) return@Button
-                val profile = FeedProfile(baseUrl.trim(), username.trim(), password)
+
+                val normalizedUsername = username.trim()
+                val existingProfile = repository.loadProfile()
+                val reusableProfile = existingProfile?.takeIf {
+                    it.baseUrl == normalizedUrl && it.username == normalizedUsername
+                }
+                val passwordForLogin = password.takeIf(String::isNotBlank) ?: reusableProfile?.password
+                if (passwordForLogin.isNullOrBlank()) {
+                    error = "Введите пароль для этого профиля"
+                    needsReauthentication = repository.hasStoredProfileIdentity()
+                    return@Button
+                }
+                val profile = FeedProfile(normalizedUrl, normalizedUsername, passwordForLogin)
                 busy = true
                 scope.launch {
                     val result = FeedApi.shared().login(profile)
-                    busy = false
-                    result.onSuccess {
-                        repository.saveProfile(profile)
-                        hasProfile = true
-                        updateSchedule(notificationsEnabled)
-                        error = null
-                        message = "Профиль Mounvix сохранён"
-                    }.onFailure { failure ->
+                    if (result.isSuccess) {
+                        val saveResult = repository.saveProfile(profile)
+                        if (saveResult.isSuccess) {
+                            password = ""
+                            hasProfile = true
+                            needsReauthentication = false
+                            updateSchedule(notificationsEnabled)
+                            error = null
+                            message = "Профиль Mounvix сохранён"
+                        } else {
+                            repository.loadProfile()
+                            message = null
+                            error = "Не удалось безопасно сохранить пароль. Повторите ввод и проверку."
+                        }
+                    } else {
+                        repository.loadProfile()
                         message = null
-                        error = failure.message?.takeIf(String::isNotBlank) ?: "Не удалось подключиться к Mounvix"
+                        error = "Не удалось подключиться к Mounvix. Проверьте адрес и пароль."
                     }
+                    busy = false
                 }
             },
             modifier = Modifier.fillMaxWidth(),

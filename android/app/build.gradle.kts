@@ -16,6 +16,7 @@ android {
         applicationId = "com.mounvix.app"
         minSdk = 29
         targetSdk = 34
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 3
         versionName = "0.1.3"
     }
@@ -91,6 +92,9 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation("androidx.test:core:1.5.0")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.test:core:1.5.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
     testImplementation("androidx.work:work-testing:2.9.0")
     testImplementation("org.json:json:20240303")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

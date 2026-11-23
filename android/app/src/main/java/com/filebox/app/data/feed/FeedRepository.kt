@@ -2,41 +2,101 @@ package com.mounvix.app.data.feed
 
 import android.content.Context
 import android.content.SharedPreferences
+import java.net.URI
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** Stores the one active server profile and the notification sync cursor. */
 class FeedRepository(
     private val api: FeedApi,
     private val preferences: SharedPreferences,
+    private val secretStore: ProfileSecretStore,
 ) {
-    /** Persist the profile; changing server/account clears the previous account's cursor. */
-    fun saveProfile(profile: FeedProfile) {
-        val normalized = FeedProfile(
-            baseUrl = profile.baseUrl.trim().trimEnd('/'),
-            username = profile.username.trim(),
-            password = profile.password,
-        )
-        require(normalized.baseUrl.isNotBlank()) { "server URL is required" }
-        require(normalized.username.isNotBlank()) { "username is required" }
-        require(normalized.password.isNotBlank()) { "password is required" }
+    /** Persist identity and encrypted secret; the old plaintext key is never written again. */
+    fun saveProfile(profile: FeedProfile): Result<Unit> {
+        return try {
+            val normalizedUrl = normalizeMounvixBaseUrl(profile.baseUrl)
+            val normalizedUsername = profile.username.trim()
+            require(normalizedUsername.isNotBlank()) { "username is required" }
+            require(profile.password.isNotBlank()) { "password is required" }
 
-        val previous = readStoredProfile()
-        val editor = preferences.edit()
-            .putString(KEY_PROFILE_URL, normalized.baseUrl)
-            .putString(KEY_PROFILE_USERNAME, normalized.username)
-            .putString(KEY_PROFILE_PASSWORD, normalized.password)
-        if (previous == null || previous.baseUrl != normalized.baseUrl || previous.username != normalized.username) {
-            editor.remove(KEY_CURSOR)
+            val normalized = FeedProfile(normalizedUrl, normalizedUsername, profile.password)
+            val previousIdentity = readStoredIdentity()
+            val key = stableFeedProfileKey(normalized.baseUrl, normalized.username)
+            secretStore.write(key, normalized.password).getOrThrow()
+            val readBack = secretStore.read(key).getOrThrow()
+            check(readBack == normalized.password) { "secure profile read-back did not match" }
+
+            val editor = preferences.edit()
+                .putString(KEY_PROFILE_URL, normalized.baseUrl)
+                .putString(KEY_PROFILE_USERNAME, normalized.username)
+                .remove(KEY_PROFILE_PASSWORD)
+            if (previousIdentity == null ||
+                previousIdentity.baseUrl != normalized.baseUrl ||
+                previousIdentity.username != normalized.username
+            ) {
+                editor.remove(KEY_CURSOR)
+            }
+            check(editor.commit()) { "could not persist Mounvix profile settings" }
+            api.setActiveProfile(normalized)
+            Result.success(Unit)
+        } catch (error: Exception) {
+            Result.failure(error)
         }
-        editor.apply()
-        api.setActiveProfile(normalized)
     }
 
-    /** Read the active profile and make it available for one-time session reauthentication. */
+    /** Load a profile only from a verified encrypted secret, migrating legacy plaintext once. */
     fun loadProfile(): FeedProfile? {
-        val profile = readStoredProfile()
+        val identity = readStoredIdentity()
+        if (identity == null) {
+            api.setActiveProfile(null)
+            return null
+        }
+        val key = stableFeedProfileKey(identity.baseUrl, identity.username)
+        val secureResult = secretStore.read(key)
+        if (secureResult.isFailure) {
+            api.setActiveProfile(null)
+            return null
+        }
+
+        val legacySecret = preferences.getString(KEY_PROFILE_PASSWORD, null)
+        val secureSecret = secureResult.getOrNull()
+        val password = when {
+            !secureSecret.isNullOrBlank() -> {
+                if (!legacySecret.isNullOrBlank()) {
+                    if (legacySecret != secureSecret || !removeLegacySecret()) {
+                        api.setActiveProfile(null)
+                        return null
+                    }
+                }
+                secureSecret
+            }
+            !legacySecret.isNullOrBlank() -> {
+                if (secretStore.write(key, legacySecret).isFailure) {
+                    api.setActiveProfile(null)
+                    return null
+                }
+                val readBack = secretStore.read(key)
+                if (readBack.isFailure || readBack.getOrNull() != legacySecret || !removeLegacySecret()) {
+                    api.setActiveProfile(null)
+                    return null
+                }
+                legacySecret
+            }
+            else -> {
+                api.setActiveProfile(null)
+                return null
+            }
+        }
+
+        val profile = FeedProfile(identity.baseUrl, identity.username, password)
         api.setActiveProfile(profile)
         return profile
     }
+
+    /** True when identity is present but no verified profile secret can be loaded. */
+    fun hasStoredProfileIdentity(): Boolean = readStoredIdentity() != null
 
     /** Fetch items newer than the committed sync cursor without changing that cursor. */
     suspend fun fetchNewSinceCursor(): FeedPage {
@@ -77,13 +137,18 @@ class FeedRepository(
     private fun requireProfile(): FeedProfile =
         loadProfile() ?: throw IllegalStateException("Mounvix feed profile is not configured")
 
-    private fun readStoredProfile(): FeedProfile? {
-        val baseUrl = preferences.getString(KEY_PROFILE_URL, null)?.trim().orEmpty()
+    private fun readStoredIdentity(): ProfileIdentity? {
+        val rawBaseUrl = preferences.getString(KEY_PROFILE_URL, null)?.trim().orEmpty()
         val username = preferences.getString(KEY_PROFILE_USERNAME, null)?.trim().orEmpty()
-        val password = preferences.getString(KEY_PROFILE_PASSWORD, null).orEmpty()
-        if (baseUrl.isBlank() || username.isBlank() || password.isBlank()) return null
-        return FeedProfile(baseUrl.trimEnd('/'), username, password)
+        if (rawBaseUrl.isBlank() || username.isBlank()) return null
+        val normalizedUrl = runCatching { normalizeMounvixBaseUrl(rawBaseUrl) }.getOrNull() ?: return null
+        return ProfileIdentity(normalizedUrl, username)
     }
+
+    private fun removeLegacySecret(): Boolean =
+        preferences.edit().remove(KEY_PROFILE_PASSWORD).commit()
+
+    private data class ProfileIdentity(val baseUrl: String, val username: String)
 
     companion object {
         private const val PAGE_LIMIT = 50
@@ -98,7 +163,42 @@ class FeedRepository(
             return FeedRepository(
                 api = FeedApi.shared(),
                 preferences = appContext.getSharedPreferences("mounvix_prefs", Context.MODE_PRIVATE),
+                secretStore = NativeProfileSecretStore(appContext),
             )
         }
     }
+}
+
+/** Normalize an HTTP(S) server base while preserving any configured path prefix. */
+internal fun normalizeMounvixBaseUrl(raw: String): String {
+    val value = raw.trim()
+    require(value.isNotBlank()) { "server URL is required" }
+    val uri = try {
+        URI(value)
+    } catch (_: Exception) {
+        throw IllegalArgumentException("invalid Mounvix server URL")
+    }
+    require(uri.scheme.equals("http", ignoreCase = true) || uri.scheme.equals("https", ignoreCase = true)) {
+        "server URL must use HTTP or HTTPS"
+    }
+    require(uri.rawAuthority != null && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null) {
+        "server URL must not contain credentials, query, or fragment"
+    }
+
+    val parsed = value.toHttpUrlOrNull() ?: throw IllegalArgumentException("invalid Mounvix server URL")
+    require(parsed.scheme == "http" || parsed.scheme == "https") { "server URL must use HTTP or HTTPS" }
+    require(parsed.host.isNotBlank() && parsed.username.isEmpty() && parsed.password.isEmpty() && parsed.query == null && parsed.fragment == null) {
+        "server URL must not contain credentials, query, or fragment"
+    }
+    val path = parsed.encodedPath.trimEnd('/').ifEmpty { "/" }
+    val normalizedPath = if (path == "/") "/" else "$path/"
+    return parsed.newBuilder().encodedPath(normalizedPath).build().toString()
+}
+
+/** Stable, non-secret key for a server/account profile; only its hash reaches secret storage. */
+internal fun stableFeedProfileKey(baseUrl: String, username: String): String {
+    val identity = "$baseUrl\n$username".toByteArray(StandardCharsets.UTF_8)
+    return MessageDigest.getInstance("SHA-256")
+        .digest(identity)
+        .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
 }

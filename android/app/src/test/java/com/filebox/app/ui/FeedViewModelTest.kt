@@ -7,6 +7,7 @@ import com.mounvix.app.data.feed.FeedApi
 import com.mounvix.app.data.feed.FeedCookieJar
 import com.mounvix.app.data.feed.FeedProfile
 import com.mounvix.app.data.feed.FeedRepository
+import com.mounvix.app.data.feed.InMemoryProfileSecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -45,6 +46,7 @@ class FeedViewModelTest {
         repository = FeedRepository(
             FeedApi(OkHttpClient.Builder().cookieJar(FeedCookieJar()).build()),
             preferences,
+            InMemoryProfileSecretStore(),
         )
         viewModel = FeedViewModel(repository, Dispatchers.Unconfined)
         viewModelStore.put("feed", viewModel)
