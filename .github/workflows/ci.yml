@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mounvix-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go tests, vet, build, and catalog verification
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: server/go.sum
+
+      - name: Test, vet, compile, and verify the pinned catalog signature
+        working-directory: server
+        run: |
+          set -euo pipefail
+          go test -race ./...
+          go vet ./...
+          go build ./...
+          go run ./cmd/sign-plugin-catalog --verify --index ../plugins/index.json --signature ../plugins/index.json.sig
+
+  android:
+    name: Android tests, lint, and debug build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Run Android unit tests, lint, and debug build
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug --no-daemon
+
+  packaging:
+    name: Cross-build and validate release packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: server/go.sum
+
+      - name: Build all server and package architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(awk -F '"' '/^[[:space:]]*versionName[[:space:]]*=/ {print $2; exit}' android/app/build.gradle.kts)"
+          [[ -n "$VERSION" ]] || { echo 'Could not read Android versionName' >&2; exit 1; }
+          export VERSION
+
+          ./scripts/build-server.sh
+          for arch in arm64 arm mipsle mips amd64 386; do
+            ./scripts/make-ipk.sh "$arch" "$VERSION"
+          done
+          for arch in amd64 arm64 arm 386; do
+            ./scripts/make-deb.sh "$arch" "$VERSION"
+          done
+          for arch in arm64 arm mipsle mips amd64 386; do
+            ./scripts/package-tar.sh "$arch" "$VERSION"
+          done
+          ./scripts/qa-packaging.sh "$VERSION"
+          ./scripts/make-feed.sh "$VERSION"
+
+          shopt -s nullglob
+          ipks=(dist/ipk/mounvix_"${VERSION}"_*.ipk)
+          debs=(dist/deb/mounvix-server_"${VERSION}"_*.deb)
+          tars=(dist/tar/mounvix-server_"${VERSION}"_linux_*.tar.gz)
+          feed_ipks=(dist/feed/mounvix_"${VERSION}"_*.ipk)
+          [[ ${#ipks[@]} -eq 6 ]] || { echo "Expected 6 IPKs, found ${#ipks[@]}" >&2; exit 1; }
+          [[ ${#debs[@]} -eq 4 ]] || { echo "Expected 4 DEBs, found ${#debs[@]}" >&2; exit 1; }
+          [[ ${#tars[@]} -eq 6 ]] || { echo "Expected 6 tarballs, found ${#tars[@]}" >&2; exit 1; }
+          [[ ${#feed_ipks[@]} -eq 6 ]] || { echo "Expected 6 feed IPKs, found ${#feed_ipks[@]}" >&2; exit 1; }
+          gzip -t dist/feed/Packages.gz
+          cmp <(gzip -dc dist/feed/Packages.gz) dist/feed/Packages

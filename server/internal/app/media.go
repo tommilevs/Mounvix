@@ -58,6 +58,10 @@ func (a *App) resolveUserPath(w http.ResponseWriter, r *http.Request, u *User) (
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return "", Root{}, "", false
 	}
+	if a.isAppDataPath(full) {
+		http.NotFound(w, r)
+		return "", Root{}, "", false
+	}
 	return rootName, root, full, true
 }
 
@@ -121,18 +125,19 @@ func (a *App) handleFileStream(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleMediaPage(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.cookieUser(r)
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/login"), http.StatusSeeOther)
 		return
 	}
-	v := &mediaView{Title: "Медиа", Lang: a.cfg.Lang, User: u, Cfg: a.cfg, Version: version.Version}
+	cfg := a.configSnapshot()
+	v := &mediaView{Title: "Медиа", Lang: cfg.Lang, User: u, Cfg: cfg, Version: version.Version}
 	rootName := r.URL.Query().Get("root")
-	if rootName == "" && len(a.cfg.Roots) > 0 {
-		rootName = a.cfg.Roots[0].Name
+	if rootName == "" && len(cfg.Roots) > 0 {
+		rootName = cfg.Roots[0].Name
 	}
 	v.Root = rootName
 	v.Path = strings.TrimSpace(r.URL.Query().Get("path"))
 	if root, ok := a.findRoot(rootName); ok {
-		if full, err := safeJoin(root.Path, v.Path); err == nil {
+		if full, err := safeJoin(root.Path, v.Path); err == nil && !a.isAppDataPath(full) {
 			if entries, err := os.ReadDir(full); err == nil {
 				for _, e := range entries {
 					if e.IsDir() {
@@ -148,8 +153,8 @@ func (a *App) handleMediaPage(w http.ResponseWriter, r *http.Request) {
 						Name:     e.Name(),
 						Path:     child,
 						IsVideo:  isVideo,
-						FileURL:  "/api/v1/file?" + q.Encode(),
-						ThumbURL: "/api/v1/thumbs?" + q.Encode() + "&w=300",
+						FileURL:  a.routePath("/api/v1/file?" + q.Encode()),
+						ThumbURL: a.routePath("/api/v1/thumbs?" + q.Encode() + "&w=300"),
 					})
 				}
 			}

@@ -1,6 +1,6 @@
 # android/ — приложение Mounvix (Kotlin + Compose)
 
-База наследуется от проекта FileBox (GPL-3.0, тот же автор): SAF-браузер, Room (избранное/недавние), мультиселект, поиск/сортировка, темы. Ребрендинг: applicationId/namespace `com.mounvix.app`, имя «Mounvix», БД `mounvix.db`, prefs `mounvix_prefs`.
+База наследуется от проекта FileBox (его исходная лицензия GPL-3.0, тот же автор); Mounvix распространяется по AGPL-3.0-only: SAF-браузер, Room (избранное/недавние), мультиселект, поиск/сортировка, темы. Ребрендинг: applicationId/namespace `com.mounvix.app`, имя «Mounvix», БД `mounvix.db`, prefs `mounvix_prefs`.
 
 ## Сборка (Windows)
 ```powershell

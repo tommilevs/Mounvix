@@ -9,11 +9,17 @@ import com.hierynomus.smbj.SMBClient
 import com.hierynomus.smbj.auth.AuthenticationContext
 import com.hierynomus.smbj.connection.Connection
 import com.hierynomus.smbj.session.Session
+import android.os.CancellationSignal
+import android.os.OperationCanceledException
 import com.hierynomus.smbj.share.DiskShare
 import com.mounvix.app.data.model.FileEntry
 import com.mounvix.app.data.model.FileType
+import java.io.Closeable
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
 import java.util.EnumSet
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Настройки SMB-сервера (SMB2/3, smbj). */
 data class SmbServer(
@@ -186,6 +192,67 @@ class SmbStorageSource(private val server: SmbServer) : StorageSource {
         System.out.println("SMB upload error: ${e.message}")
         false
     }
+    override fun uploadCancellable(
+        input: InputStream,
+        contentLength: Long,
+        path: String,
+        signal: CancellationSignal,
+        onProgress: (Long, Long) -> Unit
+    ) {
+        signal.throwIfCanceled()
+        try {
+            withShare { share ->
+                signal.throwIfCanceled()
+                signal.setOnCancelListener {
+                    try {
+                        share.close()
+                    } catch (_: Exception) {
+                    }
+                }
+                val remoteFile = share.openFile(
+                    path.trim('/'),
+                    EnumSet.of(AccessMask.GENERIC_WRITE),
+                    EnumSet.of(FileAttributes.FILE_ATTRIBUTE_ARCHIVE),
+                    SMB2ShareAccess.ALL,
+                    SMB2CreateDisposition.FILE_OVERWRITE_IF,
+                    EnumSet.of(SMB2CreateOptions.FILE_NON_DIRECTORY_FILE),
+                )
+                val output = remoteFile.outputStream
+                val closed = AtomicBoolean()
+                val resources = Closeable {
+                    if (closed.compareAndSet(false, true)) {
+                        try {
+                            output.close()
+                        } finally {
+                            remoteFile.close()
+                        }
+                    }
+                }
+                val transfer = CancellableUpload(input, signal) { resources.close() }
+                try {
+                    resources.use {
+                        transfer.copyTo(contentLength, onProgress) { buffer, count ->
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                    signal.throwIfCanceled()
+                } finally {
+                    transfer.close()
+                }
+            }
+        } catch (cancelled: OperationCanceledException) {
+            throw cancelled
+        } catch (error: IOException) {
+            if (signal.isCanceled) throw OperationCanceledException("Upload cancelled")
+            throw error
+        } catch (error: Exception) {
+            if (signal.isCanceled) throw OperationCanceledException("Upload cancelled")
+            throw IOException("SMB upload failed", error)
+        } finally {
+            signal.setOnCancelListener(null)
+        }
+    }
+
     override fun downloadTo(path: String, target: File): Boolean = try {
         target.parentFile?.mkdirs()
         withShare { share ->

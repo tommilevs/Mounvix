@@ -13,12 +13,16 @@ import com.mounvix.app.data.db.Favorite
 import com.mounvix.app.data.db.Recent
 import com.mounvix.app.data.model.FileEntry
 import com.mounvix.app.data.ai.AiRecognizer
+import com.mounvix.app.data.feed.NativeProfileSecretStore
 import com.mounvix.app.data.notify.Notifier
 import com.mounvix.app.data.model.FileNameRules
 import com.mounvix.app.data.model.FileType
 import com.mounvix.app.data.repository.FavoriteRepository
 import com.mounvix.app.data.repository.RecentRepository
 import com.mounvix.app.data.source.SafStorageSource
+import com.mounvix.app.data.source.RemoteCredentialKeys
+import com.mounvix.app.data.source.RemoteCredentialRepository
+import com.mounvix.app.data.source.SftpHostKeyFingerprint
 import com.mounvix.app.data.source.SftpServer
 import com.mounvix.app.data.source.SftpStorageSource
 import com.mounvix.app.data.source.SmbServer
@@ -54,6 +58,9 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
     @Volatile private var recentsLoading = false
 
     private val prefs by lazy { appContext.getSharedPreferences("mounvix_prefs", Context.MODE_PRIVATE) }
+    private val credentials by lazy {
+        RemoteCredentialRepository(prefs, NativeProfileSecretStore(appContext))
+    }
 
     /** Восстановить последнее дерево после перезапуска, если persistable-право SAF ещё действует. */
     private fun restoreLastTree() {
@@ -90,10 +97,69 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
 
     // Инициализация ПОСЛЕ всех полей-состояний: Kotlin инициализирует поля в порядке объявления.
     init {
+        migrateStoredCredentials()
         restoreLastTree()
         restoreLastWebDav()
         restoreLastSmb()
         restoreLastSftp()
+    }
+
+    fun loadWebDavPassword(): Result<String> {
+        val url = prefs.getString("webdav_url", null)
+        val user = prefs.getString("webdav_user", "") ?: ""
+        val key = if (url.isNullOrBlank()) RemoteCredentialKeys.legacy("webdav_pass")
+            else RemoteCredentialKeys.webDav(url, user)
+        return credentials.read(key, "webdav_pass")
+    }
+
+    fun loadSmbPassword(): Result<String> {
+        val host = prefs.getString("smb_host", null)
+        val share = prefs.getString("smb_share", "") ?: ""
+        val domain = prefs.getString("smb_domain", "") ?: ""
+        val user = prefs.getString("smb_user", "") ?: ""
+        val key = if (host.isNullOrBlank()) RemoteCredentialKeys.legacy("smb_pass")
+            else RemoteCredentialKeys.smb(host, share, domain, user)
+        return credentials.read(key, "smb_pass")
+    }
+
+    fun loadSftpPassword(): Result<String> {
+        val host = prefs.getString("sftp_host", null)
+        val port = prefs.getInt("sftp_port", 22)
+        val base = prefs.getString("sftp_base", "/") ?: "/"
+        val user = prefs.getString("sftp_user", "") ?: ""
+        val key = if (host.isNullOrBlank()) RemoteCredentialKeys.legacy("sftp_pass")
+            else RemoteCredentialKeys.sftp(host, port, base, user)
+        return credentials.read(key, "sftp_pass")
+    }
+
+    fun loadAiKey(): Result<String> {
+        val base = prefs.getString("ai_base", null)
+        val key = if (base.isNullOrBlank()) RemoteCredentialKeys.legacy("ai_key")
+            else RemoteCredentialKeys.ai(base)
+        return credentials.read(key, "ai_key")
+    }
+
+    private fun migrateStoredCredentials() {
+        scope.launch {
+            listOf(
+                "WebDAV" to loadWebDavPassword(),
+                "SMB" to loadSmbPassword(),
+                "SFTP" to loadSftpPassword(),
+                "AI" to loadAiKey(),
+            ).filter { it.second.isFailure }
+                .forEach { (profile, result) ->
+                    Log.w("MounvixSecrets", "$profile credential migration pending: ${result.exceptionOrNull()?.javaClass?.simpleName}")
+                }
+        }
+    }
+
+    fun saveAiSettings(base: String, model: String, apiKey: String): Boolean {
+        val normalizedBase = base.trim()
+        val normalizedModel = model.trim()
+        return credentials.save(RemoteCredentialKeys.ai(normalizedBase), "ai_key", apiKey) { editor ->
+            editor.putString("ai_base", normalizedBase)
+                .putString("ai_model", normalizedModel)
+        }.isSuccess
     }
 
     // ---------- Вкладка «Файлы» ----------
@@ -131,19 +197,25 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
 
     /** Подключение к WebDAV (блокирующее; вызывать из IO). */
     fun connectWebDav(url: String, user: String, password: String, trustAll: Boolean): Boolean {
-        if (url.isBlank()) return false
+        val normalizedUrl = url.trim()
+        val normalizedUser = user.trim()
+        if (normalizedUrl.isBlank()) return false
         return try {
-            val src = WebDavStorageSource(WebDavServer(baseUrl = url, user = user, password = password, trustAll = trustAll))
+            val src = WebDavStorageSource(
+                WebDavServer(baseUrl = normalizedUrl, user = normalizedUser, password = password, trustAll = trustAll)
+            )
             src.listDir("")
+            credentials.save(RemoteCredentialKeys.webDav(normalizedUrl, normalizedUser), "webdav_pass", password) { editor ->
+                editor.putString("webdav_url", normalizedUrl)
+                    .putString("webdav_user", normalizedUser)
+                    .putBoolean("webdav_trust", trustAll)
+            }.getOrThrow()
             source = src
             _state.update { it.copy(treeUri = null, remoteMode = true, pathStack = emptyList(), selection = emptySet(), search = "", error = null) }
-            prefs.edit()
-                .putString("webdav_url", url).putString("webdav_user", user)
-                .putString("webdav_pass", password).putBoolean("webdav_trust", trustAll).apply()
             refresh()
             true
         } catch (e: Exception) {
-            Log.w("MounvixWebDav", "connect failed: ${e.message}")
+            Log.w("MounvixWebDav", "connect failed: ${e.javaClass.simpleName}")
             false
         }
     }
@@ -152,26 +224,50 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         val url = prefs.getString("webdav_url", null) ?: return
         if (prefs.getString("last_tree_uri", null) != null) return
         val user = prefs.getString("webdav_user", "") ?: ""
-        val pass = prefs.getString("webdav_pass", "") ?: ""
         val trust = prefs.getBoolean("webdav_trust", true)
-        scope.launch { connectWebDav(url, user, pass, trust) }
+        scope.launch {
+            val pass = loadWebDavPassword().getOrElse {
+                Log.w("MounvixWebDav", "stored credential unavailable: ${it::class.simpleName}")
+                return@launch
+            }
+            connectWebDav(url, user, pass, trust)
+        }
     }
 
     /** Подключение к SMB (блокирующее; из IO). */
     fun connectSmb(host: String, share: String, domain: String, user: String, password: String): Boolean {
-        if (host.isBlank() || share.isBlank()) return false
+        val normalizedHost = host.trim()
+        val normalizedShare = share.trim()
+        val normalizedDomain = domain.trim()
+        val normalizedUser = user.trim()
+        if (normalizedHost.isBlank() || normalizedShare.isBlank()) return false
         return try {
-            val src = SmbStorageSource(SmbServer(host = host, share = share, domain = domain, user = user, password = password))
+            val src = SmbStorageSource(
+                SmbServer(
+                    host = normalizedHost,
+                    share = normalizedShare,
+                    domain = normalizedDomain,
+                    user = normalizedUser,
+                    password = password,
+                )
+            )
             src.listDir("")
+            credentials.save(
+                RemoteCredentialKeys.smb(normalizedHost, normalizedShare, normalizedDomain, normalizedUser),
+                "smb_pass",
+                password,
+            ) { editor ->
+                editor.putString("smb_host", normalizedHost)
+                    .putString("smb_share", normalizedShare)
+                    .putString("smb_domain", normalizedDomain)
+                    .putString("smb_user", normalizedUser)
+            }.getOrThrow()
             source = src
             _state.update { it.copy(treeUri = null, remoteMode = true, pathStack = emptyList(), selection = emptySet(), search = "", error = null) }
-            prefs.edit()
-                .putString("smb_host", host).putString("smb_share", share).putString("smb_domain", domain)
-                .putString("smb_user", user).putString("smb_pass", password).apply()
             refresh()
             true
         } catch (e: Exception) {
-            Log.w("MounvixSmb", "connect failed: ${e.message}")
+            Log.w("MounvixSmb", "connect failed: ${e.javaClass.simpleName}")
             false
         }
     }
@@ -183,8 +279,13 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         val share = prefs.getString("smb_share", "") ?: ""
         val domain = prefs.getString("smb_domain", "") ?: ""
         val user = prefs.getString("smb_user", "") ?: ""
-        val pass = prefs.getString("smb_pass", "") ?: ""
-        scope.launch { connectSmb(host, share, domain, user, pass) }
+        scope.launch {
+            val pass = loadSmbPassword().getOrElse {
+                Log.w("MounvixSmb", "stored credential unavailable: ${it::class.simpleName}")
+                return@launch
+            }
+            connectSmb(host, share, domain, user, pass)
+        }
     }
 
     private fun smbSourceFor(treeId: String): SmbStorageSource? {
@@ -193,27 +294,57 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         val expected = "smb://$host/$share"
         if (treeId.trimEnd('/') != expected.trimEnd('/')) return null
         val user = prefs.getString("smb_user", "") ?: ""
-        val pass = prefs.getString("smb_pass", "") ?: ""
         val domain = prefs.getString("smb_domain", "") ?: ""
+        val pass = credentials.read(
+            RemoteCredentialKeys.smb(host, share, domain, user),
+            "smb_pass",
+        ).getOrElse { return null }
         return SmbStorageSource(SmbServer(host = host, share = share, domain = domain, user = user, password = pass))
     }
 
-    /** Подключение к SFTP (блокирующее; из IO). */
-    fun connectSftp(host: String, port: Int, user: String, password: String, basePath: String): Boolean {
-        if (host.isBlank()) return false
+    /** Подключение к SFTP (блокирующее; из IO); подключение без закреплённого ключа запрещено. */
+    fun connectSftp(
+        host: String,
+        port: Int,
+        user: String,
+        password: String,
+        basePath: String,
+        hostKeyFingerprint: String,
+    ): Boolean {
+        val normalizedHost = host.trim()
+        val normalizedUser = user.trim()
+        val normalizedBase = basePath.trim().ifEmpty { "/" }
+        if (normalizedHost.isBlank() || !SftpHostKeyFingerprint.isValid(hostKeyFingerprint)) return false
+        val fingerprint = SftpHostKeyFingerprint.normalize(hostKeyFingerprint)
         return try {
-            val src = SftpStorageSource(SftpServer(host = host, port = port, user = user, password = password, basePath = basePath))
+            val src = SftpStorageSource(
+                SftpServer(
+                    host = normalizedHost,
+                    port = port,
+                    user = normalizedUser,
+                    password = password,
+                    basePath = normalizedBase,
+                    hostKeyFingerprint = fingerprint,
+                )
+            )
             src.listDir("")
+            credentials.save(
+                RemoteCredentialKeys.sftp(normalizedHost, port, normalizedBase, normalizedUser),
+                "sftp_pass",
+                password,
+            ) { editor ->
+                editor.putString("sftp_host", normalizedHost)
+                    .putInt("sftp_port", port)
+                    .putString("sftp_user", normalizedUser)
+                    .putString("sftp_base", normalizedBase)
+                    .putString("sftp_host_key_fingerprint", fingerprint)
+            }.getOrThrow()
             source = src
             _state.update { it.copy(treeUri = null, remoteMode = true, pathStack = emptyList(), selection = emptySet(), search = "", error = null) }
-            prefs.edit()
-                .putString("sftp_host", host).putInt("sftp_port", port)
-                .putString("sftp_user", user).putString("sftp_pass", password)
-                .putString("sftp_base", basePath).apply()
             refresh()
             true
         } catch (e: Exception) {
-            Log.w("MounvixSftp", "connect failed: ${e.message}")
+            Log.w("MounvixSftp", "connect failed: ${e.javaClass.simpleName}")
             false
         }
     }
@@ -225,9 +356,15 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         if (prefs.getString("smb_host", null) != null) return
         val port = prefs.getInt("sftp_port", 22)
         val user = prefs.getString("sftp_user", "") ?: ""
-        val pass = prefs.getString("sftp_pass", "") ?: ""
         val base = prefs.getString("sftp_base", "/") ?: "/"
-        scope.launch { connectSftp(host, port, user, pass, base) }
+        val fingerprint = prefs.getString("sftp_host_key_fingerprint", "") ?: ""
+        scope.launch {
+            val pass = loadSftpPassword().getOrElse {
+                Log.w("MounvixSftp", "stored credential unavailable: ${it::class.simpleName}")
+                return@launch
+            }
+            connectSftp(host, port, user, pass, base, fingerprint)
+        }
     }
 
     private fun sftpSourceFor(treeId: String): SftpStorageSource? {
@@ -237,8 +374,21 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         val expected = "sftp://$host:$port" + base.trimEnd('/')
         if (treeId.trimEnd('/') != expected.trimEnd('/')) return null
         val user = prefs.getString("sftp_user", "") ?: ""
-        val pass = prefs.getString("sftp_pass", "") ?: ""
-        return SftpStorageSource(SftpServer(host = host, port = port, user = user, password = pass, basePath = base))
+        val fingerprint = prefs.getString("sftp_host_key_fingerprint", "") ?: ""
+        val pass = credentials.read(
+            RemoteCredentialKeys.sftp(host, port, base, user),
+            "sftp_pass",
+        ).getOrElse { return null }
+        return SftpStorageSource(
+            SftpServer(
+                host = host,
+                port = port,
+                user = user,
+                password = pass,
+                basePath = base,
+                hostKeyFingerprint = fingerprint,
+            )
+        )
     }
 
     fun refresh() {
@@ -581,7 +731,8 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
         val url = prefs.getString("webdav_url", null) ?: return null
         if (url.trimEnd('/') != treeId.trimEnd('/')) return null
         val user = prefs.getString("webdav_user", "") ?: ""
-        val pass = prefs.getString("webdav_pass", "") ?: ""
+        val pass = credentials.read(RemoteCredentialKeys.webDav(url, user), "webdav_pass")
+            .getOrElse { return null }
         val trust = prefs.getBoolean("webdav_trust", true)
         return WebDavStorageSource(WebDavServer(baseUrl = treeId, user = user, password = pass, trustAll = trust))
     }
@@ -967,8 +1118,9 @@ class MounvixViewModel(private val appContext: Context) : ViewModel() {
             _aiState.value = AiState.Loading(entry.name)
             try {
                 val f = cacheMediaFile(entry.path, src) ?: throw IllegalStateException("не удалось прочитать файл")
+                val apiKey = credentials.read(RemoteCredentialKeys.ai(base), "ai_key").getOrThrow()
                 val text = AiRecognizer().describe(
-                    base, model, prefs.getString("ai_key", "") ?: "",
+                    base, model, apiKey,
                     f.readBytes(), src.mimeTypeOf(entry.path) ?: "image/jpeg", ""
                 )
                 _aiState.value = AiState.Done(entry.name, text)

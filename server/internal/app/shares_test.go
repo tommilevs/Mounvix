@@ -17,7 +17,7 @@ func loginClient(t *testing.T, base string) *http.Client {
 	t.Helper()
 	jar, _ := cookiejar.New(nil)
 	c := &http.Client{Jar: jar}
-	resp, err := c.PostForm(base+"/login", url.Values{"username": {"admin"}, "password": {"1234567890"}})
+	resp, err := c.PostForm(base+"/login", url.Values{"username": {"admin"}, "password": {testAdminPassword}})
 	if err != nil {
 		t.Fatal(err)
 	}

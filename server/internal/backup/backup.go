@@ -53,15 +53,21 @@ type Report struct {
 }
 
 type Manager struct {
-	mu   sync.Mutex
-	dir  string
-	path string
-	jobs []*Job
-	last map[string]Report
+	mu            sync.Mutex
+	dir           string
+	path          string
+	reportPath    string
+	jobs          []*Job
+	last          map[string]Report
+	onReport      func(Report)
+	excludedPaths []string
 }
 
-func New(dir string) (*Manager, error) {
-	m := &Manager{dir: dir, path: filepath.Join(dir, "backup-jobs.json"), last: map[string]Report{}}
+func New(dir string, excludedPaths ...string) (*Manager, error) {
+	m := &Manager{
+		dir: dir, path: filepath.Join(dir, "backup-jobs.json"), reportPath: filepath.Join(dir, "backup-reports.json"),
+		last: map[string]Report{}, excludedPaths: append([]string(nil), excludedPaths...),
+	}
 	if b, err := os.ReadFile(m.path); err == nil {
 		if err := json.Unmarshal(b, &m.jobs); err != nil {
 			return nil, fmt.Errorf("load backup jobs: %w", err)
@@ -69,8 +75,57 @@ func New(dir string) (*Manager, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
+	if b, err := os.ReadFile(m.reportPath); err == nil {
+		if err := json.Unmarshal(b, &m.last); err != nil {
+			return nil, fmt.Errorf("load backup reports: %w", err)
+		}
+		if m.last == nil {
+			m.last = map[string]Report{}
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("read backup reports: %w", err)
+	}
 	m.Start(context.Background())
 	return m, nil
+}
+
+func (m *Manager) isExcludedPath(path string) bool {
+	candidate, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	for _, excluded := range m.excludedPaths {
+		excluded, err := filepath.Abs(excluded)
+		if err != nil {
+			continue
+		}
+		if filepath.Clean(candidate) == filepath.Clean(excluded) {
+			return true
+		}
+		candidateInfo, candidateErr := os.Stat(candidate)
+		excludedInfo, excludedErr := os.Stat(excluded)
+		if candidateErr == nil && excludedErr == nil && os.SameFile(candidateInfo, excludedInfo) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) isExcludedName(name string) bool {
+	base := filepath.Base(name)
+	for _, excluded := range m.excludedPaths {
+		if base == filepath.Base(excluded) {
+			return true
+		}
+	}
+	return false
+}
+
+// SetReportCallback registers a callback invoked after a terminal report is durable.
+func (m *Manager) SetReportCallback(callback func(Report)) {
+	m.mu.Lock()
+	m.onReport = callback
+	m.mu.Unlock()
 }
 
 // Restore восстанавливает файлы из локальной цели бэкапа в dest (с перезаписью).
@@ -114,6 +169,10 @@ func (m *Manager) Restore(ctx context.Context, id, dest string) (Report, error) 
 			return ctx.Err()
 		default:
 		}
+		if !d.IsDir() && (m.isExcludedPath(p) || m.isExcludedName(d.Name())) {
+			rep.Skipped++
+			return nil
+		}
 		if d.IsDir() {
 			return nil
 		}
@@ -127,7 +186,12 @@ func (m *Manager) Restore(ctx context.Context, id, dest string) (Report, error) 
 			rep.Errors = append(rep.Errors, p+": "+err.Error())
 			return nil
 		}
-		if err := copyLocal(p, filepath.Join(dest, rel), info); err != nil {
+		targetPath := filepath.Join(dest, rel)
+		if m.isExcludedPath(targetPath) || m.isExcludedName(rel) {
+			rep.Skipped++
+			return nil
+		}
+		if err := copyLocal(p, targetPath, info); err != nil {
 			rep.Errors = append(rep.Errors, rel+": "+err.Error())
 			return nil
 		}
@@ -251,6 +315,21 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
+func (m *Manager) saveReportsLocked() error {
+	if err := os.MkdirAll(m.dir, 0o755); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(m.last, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := m.reportPath + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, m.reportPath)
+}
+
 func (m *Manager) saveLocked() error {
 	if err := os.MkdirAll(m.dir, 0o755); err != nil {
 		return err
@@ -285,6 +364,10 @@ func (m *Manager) Run(ctx context.Context, id string) (Report, error) {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+		if !d.IsDir() && (m.isExcludedPath(p) || m.isExcludedName(d.Name())) {
+			rep.Skipped++
+			return nil
 		}
 		if d.IsDir() {
 			return nil
@@ -324,8 +407,19 @@ func (m *Manager) Run(ctx context.Context, id string) (Report, error) {
 	m.mu.Lock()
 	job.LastRun = rep.Finished
 	m.last[id] = rep
-	_ = m.saveLocked()
+	jobErr := m.saveLocked()
+	reportErr := m.saveReportsLocked()
+	callback := m.onReport
 	m.mu.Unlock()
+	if jobErr != nil {
+		return rep, fmt.Errorf("persist backup job: %w", jobErr)
+	}
+	if reportErr != nil {
+		return rep, fmt.Errorf("persist terminal backup report: %w", reportErr)
+	}
+	if callback != nil {
+		callback(rep)
+	}
 	return rep, nil
 }
 

@@ -1,5 +1,7 @@
 package com.mounvix.app.data.source
 
+import android.os.CancellationSignal
+import android.os.OperationCanceledException
 import com.mounvix.app.data.model.FileEntry
 import com.mounvix.app.data.model.FileType
 import okhttp3.Credentials
@@ -18,6 +20,7 @@ import org.w3c.dom.Element
 import org.xml.sax.InputSource
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.io.StringReader
 import java.net.URLDecoder
 import java.security.SecureRandom
@@ -164,6 +167,49 @@ class WebDavStorageSource(private val server: WebDavServer) : StorageSource {
         }
         return true
     }
+
+    override fun uploadCancellable(
+        input: InputStream,
+        contentLength: Long,
+        path: String,
+        signal: CancellationSignal,
+        onProgress: (Long, Long) -> Unit
+    ) {
+        var activeUpload: CancellableUpload? = null
+        val body = object : RequestBody() {
+            override fun contentType(): MediaType? = "application/octet-stream".toMediaTypeOrNull()
+            override fun contentLength(): Long = contentLength
+            override fun isOneShot(): Boolean = true
+
+            override fun writeTo(sink: BufferedSink) {
+                val upload = activeUpload ?: throw IOException("Upload stream is unavailable")
+                upload.copyTo(contentLength, onProgress) { buffer, count -> sink.write(buffer, 0, count) }
+            }
+        }
+        val req = Request.Builder()
+            .url(buildUrl(path, false))
+            .put(body)
+            .apply { addAuth(this) }
+            .build()
+        val call = client.newCall(req)
+        val upload = CancellableUpload(input, signal) { call.cancel() }
+        activeUpload = upload
+        try {
+            signal.throwIfCanceled()
+            call.execute().use { response ->
+                if (!response.isSuccessful) throw IOException("PUT ${response.code}")
+            }
+            signal.throwIfCanceled()
+        } catch (cancelled: OperationCanceledException) {
+            throw cancelled
+        } catch (error: IOException) {
+            if (signal.isCanceled) throw OperationCanceledException("Upload cancelled")
+            throw error
+        } finally {
+            upload.close()
+        }
+    }
+
     override fun downloadTo(path: String, target: java.io.File): Boolean = try {
         download(path, target); true
     } catch (e: Exception) {

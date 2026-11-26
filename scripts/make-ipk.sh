@@ -16,10 +16,12 @@ BIN="$ROOT/dist/server/linux_${GOARCH}/mounvix-server"
 W="$(mktemp -d)"
 trap 'rm -rf "$W"' EXIT
 
-mkdir -p "$W/data/opt/bin" "$W/data/opt/etc/init.d" "$W/data/opt/etc/mounvix" "$W/data/opt/var/log" "$W/data/opt/var/run"
+mkdir -p "$W/data/opt/bin" "$W/data/opt/etc/init.d" "$W/data/opt/etc/mounvix" "$W/data/opt/share/doc/mounvix" "$W/data/opt/var/log" "$W/data/opt/var/run"
 cp "$BIN" "$W/data/opt/bin/mounvix-server"
 cp "$ROOT/packaging/init.d/S99mounvix" "$W/data/opt/etc/init.d/S99mounvix"
+cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$W/data/opt/share/doc/mounvix/"
 chmod +x "$W/data/opt/bin/mounvix-server" "$W/data/opt/etc/init.d/S99mounvix"
+chmod 644 "$W/data/opt/share/doc/mounvix/LICENSE" "$W/data/opt/share/doc/mounvix/NOTICE"
 printf '{"port":48100,"data_dir":"/opt/var/mounvix"}\n' > "$W/data/opt/etc/mounvix/config.json"
 
 mkdir -p "$W/control"
@@ -31,6 +33,7 @@ Architecture: ${A}
 Maintainer: tommilevs <tommilevs@gmail.com>
 Section: utils
 Priority: optional
+License: AGPL-3.0-only
 Conffiles: /opt/etc/mounvix/config.json
 Description: Mounvix NAS server - lightweight NAS web UI and WebDAV
 EOF

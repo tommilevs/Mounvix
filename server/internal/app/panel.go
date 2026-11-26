@@ -13,18 +13,23 @@ func stringsRU() map[string]string {
 	return map[string]string{
 		"login": "Вход", "username": "Логин", "password": "Пароль", "signin": "Войти",
 		"nav_overview": "Обзор", "nav_folders": "Доступ к папкам", "nav_users": "Пользователи",
-		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_regs": "Заявки", "nav_plugins": "Плагины", "nav_ai": "AI", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
+		"nav_shares": "Шары", "nav_media": "Медиа", "nav_backup": "Бэкап", "nav_regs": "Заявки", "nav_plugins": "Плагины", "nav_notifications": "Уведомления", "nav_ai": "AI", "nav_settings": "Настройки", "nav_logs": "Логи", "nav_stats": "Статистика", "logout": "Выход",
 		"overview": "Обзор", "version": "Версия", "uptime": "Аптайм", "roots": "Папки",
 		"users": "Пользователи", "sessions": "Сессии", "audit": "Аудит",
 		"folders": "Доступ к папкам", "name": "Имя", "path": "Путь", "readonly": "Только чтение",
 		"your_perm":   "Ваши права",
 		"create_user": "Создать пользователя", "new_password": "Новый пароль", "role": "Роль",
 		"apply": "Применить", "reset": "Сбросить пароль", "disable": "Отключить", "enable": "Включить",
-		"lang": "Язык", "save": "Сохранить", "logs": "Логи", "time": "Время", "action": "Действие",
+		"lang": "Язык", "save": "Сохранить", "settings": "Настройки", "logs": "Логи", "time": "Время", "action": "Действие",
 		"info": "Информация", "stats": "Статистика", "total_users": "Пользователей",
 		"total_roots": "Папок", "total_sessions": "Активных сессий", "audit_events": "Событий аудита",
-		"settings_note": "Корни задаются в config.json. Здесь можно сменить язык интерфейса.",
-		"no_access":     "Нет доступа", "acl": "Доступ к папкам (чтение/запись)", "create": "Создать",
+		"settings_note": "Корни задаются в config.json. Здесь можно сменить язык и настроить ленту «Воспоминания».",
+		"feeds_title":   "Воспоминания", "feeds_enable": "Включить автоматические подборки", "feeds_roots": "Корни для сканирования", "feeds_weekdays": "Дни недели", "feeds_times": "Время генерации (ЧЧ:ММ, через запятую)",
+		"feeds_quiet_start": "Начало тихих часов", "feeds_quiet_end": "Конец тихих часов", "feeds_period": "Период поиска, дней", "feeds_max_items": "Медиа в карточке (макс. 8)", "feeds_retention": "Хранить карточки, дней",
+		"weekday_mon": "Пн", "weekday_tue": "Вт", "weekday_wed": "Ср", "weekday_thu": "Чт", "weekday_fri": "Пт", "weekday_sat": "Сб", "weekday_sun": "Вс",
+		"no_access": "Нет доступа", "acl": "Доступ к папкам (чтение/запись)", "create": "Создать",
+		"theme": "Тема", "theme_dark": "Тёмная", "theme_light": "Светлая", "theme_system": "Система",
+		"menu": "Меню", "nav_label": "Основная навигация", "skip_content": "Перейти к содержимому", "close_menu": "Закрыть меню", "source_code": "Исходный код",
 	}
 }
 
@@ -32,45 +37,25 @@ func stringsEN() map[string]string {
 	return map[string]string{
 		"login": "Login", "username": "Username", "password": "Password", "signin": "Sign in",
 		"nav_overview": "Overview", "nav_folders": "Folders access", "nav_users": "Users",
-		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_regs": "Requests", "nav_plugins": "Plugins", "nav_ai": "AI", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
+		"nav_shares": "Shares", "nav_media": "Media", "nav_backup": "Backup", "nav_regs": "Requests", "nav_plugins": "Plugins", "nav_notifications": "Notifications", "nav_ai": "AI", "nav_settings": "Settings", "nav_logs": "Logs", "nav_stats": "Stats", "logout": "Log out",
 		"overview": "Overview", "version": "Version", "uptime": "Uptime", "roots": "Folders",
 		"users": "Users", "sessions": "Sessions", "audit": "Audit",
 		"folders": "Folders access", "name": "Name", "path": "Path", "readonly": "Read-only",
 		"your_perm":   "Your permission",
 		"create_user": "Create user", "new_password": "New password", "role": "Role",
 		"apply": "Apply", "reset": "Reset password", "disable": "Disable", "enable": "Enable",
-		"lang": "Language", "save": "Save", "logs": "Logs", "time": "Time", "action": "Action",
+		"lang": "Language", "save": "Save", "settings": "Settings", "logs": "Logs", "time": "Time", "action": "Action",
 		"info": "Info", "stats": "Stats", "total_users": "Users", "total_roots": "Folders",
 		"total_sessions": "Active sessions", "audit_events": "Audit events",
-		"settings_note": "Roots are set in config.json. Here you can change the interface language.",
-		"no_access":     "No access", "acl": "Folder access (read/write)", "create": "Create",
+		"settings_note": "Roots are set in config.json. Here you can change the language and configure Memories.",
+		"feeds_title":   "Memories", "feeds_enable": "Enable automatic collections", "feeds_roots": "Roots to scan", "feeds_weekdays": "Weekdays", "feeds_times": "Generation times (HH:MM, comma-separated)",
+		"feeds_quiet_start": "Quiet hours start", "feeds_quiet_end": "Quiet hours end", "feeds_period": "Search period, days", "feeds_max_items": "Media per card (max 8)", "feeds_retention": "Keep cards, days",
+		"weekday_mon": "Mon", "weekday_tue": "Tue", "weekday_wed": "Wed", "weekday_thu": "Thu", "weekday_fri": "Fri", "weekday_sat": "Sat", "weekday_sun": "Sun",
+		"no_access": "No access", "acl": "Folder access (read/write)", "create": "Create",
+		"theme": "Theme", "theme_dark": "Dark", "theme_light": "Light", "theme_system": "System",
+		"menu": "Menu", "nav_label": "Primary navigation", "skip_content": "Skip to content", "close_menu": "Close menu", "source_code": "Source code",
 	}
 }
-
-const styleCSS = `body{font-family:system-ui,sans-serif;margin:0;background:#f6f7f9;color:#17202a}
-header{display:flex;gap:16px;align-items:center;padding:10px 16px;background:#10233b;color:#fff;flex-wrap:wrap}
-header nav{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-header a{color:#dbe7f5;text-decoration:none}header a:hover{color:#fff}
-main{padding:16px;max-width:1100px;margin:0 auto}
-table{border-collapse:collapse;width:100%;background:#fff}
-th,td{text-align:left;padding:6px 10px;border-bottom:1px solid #e6e9ee;font-size:14px}
-th{background:#eef1f6}
-.card{background:#fff;border:1px solid #e6e9ee;border-radius:10px;padding:12px;margin:8px 0}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:12px 0}
-.big{font-size:22px;font-weight:600}.muted{color:#68727e;font-size:13px}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
-input,select,button{font:inherit;padding:6px 8px;border:1px solid #cfd6df;border-radius:8px;background:#fff}
-button{background:#1f4e79;color:#fff;border-color:#1f4e79;cursor:pointer}button:hover{background:#2a6396}
-.login{display:flex;justify-content:center;align-items:center;min-height:100vh;background:#0f1b2d}
-.login .card{width:340px}.login h1{color:#1f4e79}.err{color:#b00020}
-footer{padding:12px 16px;color:#68727e;font-size:12px}
-.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin:16px 0}
-.gallery .item{background:#fff;border:1px solid #e6e9ee;border-radius:10px;overflow:hidden;transition:transform .15s ease-out,box-shadow .15s ease-out}
-.gallery .item:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(15,27,45,.08)}
-.gallery .thumb{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#eef1f6}
-.gallery .cap{padding:8px 10px;font-size:13px;display:flex;justify-content:space-between;gap:8px}
-.gallery .vid{display:flex;align-items:center;justify-content:center;height:100%;font-size:40px;color:#1f4e79;background:#eef1f6}
-`
 
 type permRoot struct {
 	Name     string
@@ -108,13 +93,14 @@ func humanUptime(d time.Duration) string {
 
 func (a *App) viewFor(r *http.Request) *view {
 	u, _ := a.cookieUser(r)
+	cfg := a.configSnapshot()
 	return &view{
 		User:    u,
-		Cfg:     a.cfg,
+		Cfg:     cfg,
 		CfgPath: a.cfgPath,
 		Version: version.Version,
 		Uptime:  humanUptime(time.Since(a.started)),
-		Lang:    a.cfg.Lang,
+		Lang:    cfg.Lang,
 	}
 }
 
@@ -125,11 +111,6 @@ func (a *App) render(w http.ResponseWriter, page string, v *view) {
 	}
 }
 
-func (a *App) handleStyle(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	_, _ = w.Write([]byte(styleCSS))
-}
-
 func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -137,7 +118,8 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	v := a.viewFor(r)
 	v.Title = a.T("overview")
-	v.RootsCount = len(a.cfg.Roots)
+	cfg := a.configSnapshot()
+	v.RootsCount = len(cfg.Roots)
 	v.UsersCount = len(a.store.Users())
 	v.Sessions = a.store.SessionCount()
 	v.AuditCount = a.store.AuditCount()
@@ -148,7 +130,8 @@ func (a *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleFolders(w http.ResponseWriter, r *http.Request) {
 	v := a.viewFor(r)
 	v.Title = a.T("folders")
-	for _, rt := range a.cfg.Roots {
+	cfg := a.configSnapshot()
+	for _, rt := range cfg.Roots {
 		perm := a.userPerm(v.User, rt.Name)
 		if perm == "" && !v.User.IsAdmin() {
 			continue
@@ -199,7 +182,7 @@ func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 			a.store.SetACL(name, acl)
 			a.store.Audit(admin.Name, "user_acl", name)
 		}
-		http.Redirect(w, r, "/users", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/users"), http.StatusSeeOther)
 		return
 	}
 	v := a.viewFor(r)
@@ -210,17 +193,53 @@ func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		_ = r.ParseForm()
-		if lang := r.PostFormValue("lang"); lang == "ru" || lang == "en" {
-			a.cfg.Lang = lang
-			if err := SaveConfig(a.cfgPath, a.cfg); err != nil {
-				a.store.Audit("admin", "settings_save_failed", err.Error())
-			}
-			if u, ok := a.cookieUser(r); ok {
-				a.store.Audit(u.Name, "settings_lang", lang)
-			}
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form", http.StatusBadRequest)
+			return
 		}
-		http.Redirect(w, r, "/settings", http.StatusSeeOther)
+		switch r.PostFormValue("action") {
+		case "lang":
+			if lang := r.PostFormValue("lang"); lang == "ru" || lang == "en" {
+				a.cfgMu.Lock()
+				a.cfg.Lang = lang
+				saveErr := SaveConfig(a.cfgPath, a.cfg)
+				a.cfgMu.Unlock()
+				if saveErr != nil {
+					a.store.Audit("admin", "settings_save_failed", saveErr.Error())
+				}
+				if u, ok := a.cookieUser(r); ok {
+					a.store.Audit(u.Name, "settings_lang", lang)
+				}
+			}
+		case "feeds":
+			u, ok := a.cookieUser(r)
+			if !ok || !u.IsAdmin() {
+				http.Error(w, "admin required", http.StatusForbidden)
+				return
+			}
+			current := a.configSnapshot()
+			cfg, err := parseFeedConfig(r, current.Feeds, current.Roots)
+			if err != nil {
+				http.Error(w, "invalid memories feed settings: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			a.cfgMu.Lock()
+			next := a.cfg
+			next.Feeds = cfg
+			saveErr := SaveConfig(a.cfgPath, next)
+			if saveErr == nil {
+				a.cfg.Feeds = cfg
+			}
+			a.cfgMu.Unlock()
+			if saveErr != nil {
+				a.store.Audit(u.Name, "feed_settings_save_failed", saveErr.Error())
+				http.Error(w, "could not save settings", http.StatusInternalServerError)
+				return
+			}
+			a.feeds.SetConfig(cfg)
+			a.store.Audit(u.Name, "feed_settings", "updated")
+		}
+		http.Redirect(w, r, a.routePath("/settings"), http.StatusSeeOther)
 		return
 	}
 	v := a.viewFor(r)
@@ -238,16 +257,49 @@ func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleStats(w http.ResponseWriter, r *http.Request) {
 	v := a.viewFor(r)
 	v.Title = a.T("stats")
-	v.RootsCount = len(a.cfg.Roots)
+	cfg := a.configSnapshot()
+	v.RootsCount = len(cfg.Roots)
 	v.UsersCount = len(a.store.Users())
 	v.Sessions = a.store.SessionCount()
 	v.AuditCount = a.store.AuditCount()
 	a.render(w, "stats.html", v)
 }
 
+func hasInt(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func hasString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func mustTemplates(a *App) *template.Template {
 	t := template.New("root").Funcs(template.FuncMap{
-		"T": func(k string) string { return a.T(k) },
+		"T":         func(k string) string { return a.T(k) },
+		"route":     a.routePath,
+		"hasInt":    hasInt,
+		"hasString": hasString,
+		"join":      strings.Join,
+		"unreadCount": func(user *User) int {
+			if user == nil || a.notifications == nil {
+				return 0
+			}
+			page, err := a.notifications.ListPage(user.Name, nil, nil, 1)
+			if err != nil {
+				return 0
+			}
+			return page.UnreadCount
+		},
 		"fmtTime": func(t time.Time) string {
 			return t.Format("02.01 15:04:05")
 		},
@@ -255,16 +307,38 @@ func mustTemplates(a *App) *template.Template {
 	return template.Must(t.Parse(panelHTML + loginHTML))
 }
 
-const panelHTML = `{{define "head.html"}}<!doctype html>
-<html lang="{{.Lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mounvix — {{.Title}}</title><link rel="stylesheet" href="/style.css"></head><body>
-{{if .User}}<header><b>Mounvix</b><nav>
-<a href="/">{{T "nav_overview"}}</a><a href="/folders">{{T "nav_folders"}}</a><a href="/users">{{T "nav_users"}}</a>
-<a href="/shares">{{T "nav_shares"}}</a><a href="/media">{{T "nav_media"}}</a><a href="/backup">{{T "nav_backup"}}</a><a href="/registrations">{{T "nav_regs"}}</a><a href="/plugins">{{T "nav_plugins"}}</a><a href="/ai">{{T "nav_ai"}}</a><a href="/settings">{{T "nav_settings"}}</a><a href="/logs">{{T "nav_logs"}}</a><a href="/stats">{{T "nav_stats"}}</a>
-<form method="post" action="/logout"><button>{{T "logout"}}</button></form>
-</nav></header>{{end}}<main>
+const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" for="theme-select">
+<span>{{T "theme"}}</span>
+<select id="theme-select" aria-label="{{T "theme"}}">
+<option value="dark" selected>{{T "theme_dark"}}</option>
+<option value="light">{{T "theme_light"}}</option>
+<option value="system">{{T "theme_system"}}</option>
+</select></label>{{end}}
+
+{{define "head.html"}}<!doctype html>
+<html lang="{{.Lang}}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mounvix — {{.Title}}</title><script src="{{route "/theme.js"}}"></script><link rel="stylesheet" href="{{route "/style.css"}}"></head><body class="panel-page">
+<a class="skip-link" href="#main-content">{{T "skip_content"}}</a>
+<div class="app-shell">
+{{if .User}}<aside class="sidebar" id="sidebar" data-open="false">
+<div class="sidebar-header">
+<a class="brand" href="{{route "/"}}" aria-label="Mounvix — {{T "nav_overview"}}">Mounvix<span class="brand-subtitle">SERVER</span></a>
+<button class="sidebar-close" id="nav-close" type="button" aria-label="{{T "close_menu"}}"><span aria-hidden="true">×</span></button>
+</div>
+<nav class="primary-nav" id="primary-nav" aria-label="{{T "nav_label"}}">
+<a class="nav-link" data-nav-link href="{{route "/"}}">{{T "nav_overview"}}</a><a class="nav-link" data-nav-link href="{{route "/folders"}}">{{T "nav_folders"}}</a><a class="nav-link" data-nav-link href="{{route "/users"}}">{{T "nav_users"}}</a>
+<a class="nav-link" data-nav-link href="{{route "/shares"}}">{{T "nav_shares"}}</a><a class="nav-link" data-nav-link href="{{route "/media"}}">{{T "nav_media"}}</a><a class="nav-link" data-nav-link href="{{route "/backup"}}">{{T "nav_backup"}}</a><a class="nav-link" data-nav-link href="{{route "/registrations"}}">{{T "nav_regs"}}</a>{{if .User.IsAdmin}}<a class="nav-link" data-nav-link href="{{route "/plugins"}}">{{T "nav_plugins"}}</a><a class="nav-link" data-nav-link href="{{route "/notifications"}}" data-notifications-api="{{route "/api/v1/notifications"}}" data-notifications-ws="{{route "/api/v1/notifications/ws"}}">{{T "nav_notifications"}}{{if gt (unreadCount .User) 0}} <span class="unread-badge" aria-label="{{unreadCount .User}} unread">{{unreadCount .User}}</span>{{end}}</a>{{end}}<a class="nav-link" data-nav-link href="{{route "/ai"}}">{{T "nav_ai"}}</a><a class="nav-link" data-nav-link href="{{route "/settings"}}">{{T "nav_settings"}}</a><a class="nav-link" data-nav-link href="{{route "/logs"}}">{{T "nav_logs"}}</a><a class="nav-link" data-nav-link href="{{route "/stats"}}">{{T "nav_stats"}}</a>
+</nav>
+<div class="sidebar-footer"><form method="post" action="{{route "/logout"}}"><button>{{T "logout"}}</button></form></div>
+</aside>{{end}}
+<div class="main-shell{{if not .User}} main-shell--public{{end}}">
+<header class="topbar">
+{{if .User}}<button class="menu-toggle" id="nav-toggle" type="button" aria-controls="sidebar" aria-expanded="false"><span aria-hidden="true">☰</span><span>{{T "menu"}}</span></button><span class="mobile-brand">Mounvix</span>{{else}}<a class="mobile-brand" href="{{route "/"}}">Mounvix</a>{{end}}
+{{template "themeControl.html" .}}
+</header>
+<main id="main-content" tabindex="-1">
 {{end}}
-{{define "foot.html"}}</main><footer>Mounvix {{.Version}}</footer></body></html>{{end}}
+{{define "foot.html"}}</main><footer class="site-footer">Mounvix {{.Version}} · <a href="https://github.com/tommilevs/Mounvix">{{T "source_code"}}</a> · AGPL-3.0-only</footer></div></div>{{if and .User .User.IsAdmin}}<script src="{{route "/notifications.js"}}" defer></script>{{end}}</body></html>{{end}}
 
 {{define "dashboard.html"}}{{template "head.html" .}}
 <h1>{{T "overview"}}</h1>
@@ -276,19 +350,19 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <div class="card"><div class="muted">{{T "sessions"}}</div><div class="big">{{.Sessions}}</div></div>
 </div>
 <h2>{{T "audit"}}</h2>
-<table><tr><th>{{T "time"}}</th><th>{{T "username"}}</th><th>{{T "action"}}</th><th>{{T "info"}}</th></tr>
-{{range .Audit}}<tr><td>{{fmtTime .At}}</td><td>{{.User}}</td><td>{{.Act}}</td><td>{{.Info}}</td></tr>{{end}}</table>
+<div class="table-wrap"><table><tr><th>{{T "time"}}</th><th>{{T "username"}}</th><th>{{T "action"}}</th><th>{{T "info"}}</th></tr>
+{{range .Audit}}<tr><td>{{fmtTime .At}}</td><td>{{.User}}</td><td>{{.Act}}</td><td>{{.Info}}</td></tr>{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "folders.html"}}{{template "head.html" .}}
 <h1>{{T "folders"}}</h1>
-<table><tr><th>{{T "name"}}</th><th>{{T "path"}}</th><th>{{T "readonly"}}</th><th>{{T "your_perm"}}</th></tr>
-{{range .Roots}}<tr><td>{{.Name}}</td><td>{{.Path}}</td><td>{{if .ReadOnly}}yes{{else}}no{{end}}</td><td>{{if .Perm}}{{.Perm}}{{else}}—{{end}}</td></tr>{{end}}</table>
+<div class="table-wrap"><table><tr><th>{{T "name"}}</th><th>{{T "path"}}</th><th>{{T "readonly"}}</th><th>{{T "your_perm"}}</th></tr>
+{{range .Roots}}<tr><td>{{.Name}}</td><td>{{.Path}}</td><td>{{if .ReadOnly}}yes{{else}}no{{end}}</td><td>{{if .Perm}}{{.Perm}}{{else}}—{{end}}</td></tr>{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "users.html"}}{{template "head.html" .}}
 <h1>{{T "users"}}</h1>
-<form method="post" action="/users" class="row">
+<form method="post" action="{{route "/users"}}" class="row">
 <input type="hidden" name="action" value="create">
 <input name="username" placeholder="{{T "username"}}">
 <input type="password" name="password" placeholder="{{T "password"}}">
@@ -298,12 +372,12 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 {{range $u := .Users}}
 <section class="card">
 <h3>{{$u.Name}} <span class="muted">{{$u.Role}}{{if $u.Disabled}} · disabled{{end}}</span></h3>
-<form method="post" action="/users" class="row"><input type="hidden" name="action" value="reset">
+<form method="post" action="{{route "/users"}}" class="row"><input type="hidden" name="action" value="reset">
 <input type="hidden" name="username" value="{{$u.Name}}">
 <input type="password" name="newpass" placeholder="{{T "new_password"}}"><button>{{T "reset"}}</button></form>
-<form method="post" action="/users" class="row"><input type="hidden" name="action" value="toggle">
+<form method="post" action="{{route "/users"}}" class="row"><input type="hidden" name="action" value="toggle">
 <input type="hidden" name="username" value="{{$u.Name}}"><button>{{T "disable"}}</button></form>
-<form method="post" action="/users" class="row"><input type="hidden" name="action" value="acl">
+<form method="post" action="{{route "/users"}}" class="row"><input type="hidden" name="action" value="acl">
 <input type="hidden" name="username" value="{{$u.Name}}">
 {{range $root := $.Cfg.Roots}}<label>{{$root.Name}}
 <select name="acl__{{$u.Name}}__{{$root.Name}}">
@@ -320,22 +394,48 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 {{define "settings.html"}}{{template "head.html" .}}
 <h1>{{T "settings"}}</h1>
 <p class="muted">{{T "settings_note"}}</p>
-<form method="post" action="/settings" class="row">
+<form method="post" action="{{route "/settings"}}" class="row">
 <input type="hidden" name="action" value="lang">
 <label>{{T "lang"}}
 <select name="lang"><option value="ru" {{if eq .Lang "ru"}}selected{{end}}>Русский</option>
 <option value="en" {{if eq .Lang "en"}}selected{{end}}>English</option></select></label>
 <button>{{T "save"}}</button>
 </form>
-<table><tr><th>{{T "name"}}</th><th>{{T "path"}}</th><th>{{T "readonly"}}</th></tr>
-{{range .Cfg.Roots}}<tr><td>{{.Name}}</td><td>{{.Path}}</td><td>{{if .ReadOnly}}yes{{else}}no{{end}}</td></tr>{{end}}</table>
+{{if .User.IsAdmin}}
+<section class="card">
+<h2>{{T "feeds_title"}}</h2>
+<form method="post" action="{{route "/settings"}}">
+<input type="hidden" name="action" value="feeds">
+<label><input type="checkbox" name="feeds_enabled" value="true" {{if .Cfg.Feeds.Enabled}}checked{{end}}> {{T "feeds_enable"}}</label>
+<div class="row"><label>{{T "feeds_roots"}}
+<select name="feeds_roots" multiple size="4">{{range .Cfg.Roots}}<option value="{{.Name}}" {{if hasString $.Cfg.Feeds.RootNames .Name}}selected{{end}}>{{.Name}}</option>{{end}}</select></label></div>
+<div class="row"><span>{{T "feeds_weekdays"}}:</span>
+<label><input type="checkbox" name="feeds_weekdays" value="1" {{if hasInt .Cfg.Feeds.Weekdays 1}}checked{{end}}>{{T "weekday_mon"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="2" {{if hasInt .Cfg.Feeds.Weekdays 2}}checked{{end}}>{{T "weekday_tue"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="3" {{if hasInt .Cfg.Feeds.Weekdays 3}}checked{{end}}>{{T "weekday_wed"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="4" {{if hasInt .Cfg.Feeds.Weekdays 4}}checked{{end}}>{{T "weekday_thu"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="5" {{if hasInt .Cfg.Feeds.Weekdays 5}}checked{{end}}>{{T "weekday_fri"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="6" {{if hasInt .Cfg.Feeds.Weekdays 6}}checked{{end}}>{{T "weekday_sat"}}</label>
+<label><input type="checkbox" name="feeds_weekdays" value="7" {{if hasInt .Cfg.Feeds.Weekdays 7}}checked{{end}}>{{T "weekday_sun"}}</label></div>
+<div class="row"><label>{{T "feeds_times"}} <input name="feeds_times" value="{{join .Cfg.Feeds.Times ","}}" placeholder="09:00,18:00"></label></div>
+<div class="row"><label>{{T "feeds_quiet_start"}} <input type="time" name="feeds_quiet_start" value="{{.Cfg.Feeds.QuietHoursStart}}"></label>
+<label>{{T "feeds_quiet_end"}} <input type="time" name="feeds_quiet_end" value="{{.Cfg.Feeds.QuietHoursEnd}}"></label></div>
+<div class="row"><label>{{T "feeds_period"}} <input type="number" min="1" max="365" name="feeds_period_days" value="{{.Cfg.Feeds.PeriodDays}}"></label>
+<label>{{T "feeds_max_items"}} <input type="number" min="1" max="8" name="feeds_max_items" value="{{.Cfg.Feeds.MaxItems}}"></label>
+<label>{{T "feeds_retention"}} <input type="number" min="1" max="365" name="feeds_retention_days" value="{{.Cfg.Feeds.RetentionDays}}"></label></div>
+<button>{{T "save"}}</button>
+</form>
+</section>
+{{end}}
+<div class="table-wrap"><table><tr><th>{{T "name"}}</th><th>{{T "path"}}</th><th>{{T "readonly"}}</th></tr>
+{{range .Cfg.Roots}}<tr><td>{{.Name}}</td><td>{{.Path}}</td><td>{{if .ReadOnly}}yes{{else}}no{{end}}</td></tr>{{end}}</table></div>
 <p class="muted">config: {{.CfgPath}}</p>
 {{template "foot.html" .}}{{end}}
 
 {{define "logs.html"}}{{template "head.html" .}}
 <h1>{{T "logs"}}</h1>
-<table><tr><th>{{T "time"}}</th><th>{{T "username"}}</th><th>{{T "action"}}</th><th>{{T "info"}}</th></tr>
-{{range .Audit}}<tr><td>{{fmtTime .At}}</td><td>{{.User}}</td><td>{{.Act}}</td><td>{{.Info}}</td></tr>{{end}}</table>
+<div class="table-wrap"><table><tr><th>{{T "time"}}</th><th>{{T "username"}}</th><th>{{T "action"}}</th><th>{{T "info"}}</th></tr>
+{{range .Audit}}<tr><td>{{fmtTime .At}}</td><td>{{.User}}</td><td>{{.Act}}</td><td>{{.Info}}</td></tr>{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "stats.html"}}{{template "head.html" .}}
@@ -350,7 +450,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 
 {{define "shares.html"}}{{template "head.html" .}}
 <h1>Шары</h1>
-<form method="post" action="/shares" class="row">
+<form method="post" action="{{route "/shares"}}" class="row">
 <input type="hidden" name="action" value="create">
 <select name="root">{{range .Roots}}<option value="{{.Name}}">{{.Name}} ({{.Path}})</option>{{end}}</select>
 <input name="path" placeholder="путь (например, Photos)" style="min-width:220px">
@@ -359,16 +459,16 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <label><input type="checkbox" name="allow_upload"> загрузка</label>
 <button>Создать ссылку</button>
 </form>
-<table><tr><th>Ссылка</th><th>Путь</th><th>Истекает</th><th>Пароль</th><th></th></tr>
-{{range .Shares}}<tr><td><a href="/s/{{.Token}}" target="_blank">/s/{{.Token}}</a></td>
+<div class="table-wrap"><table><tr><th>Ссылка</th><th>Путь</th><th>Истекает</th><th>Пароль</th><th></th></tr>
+{{range .Shares}}<tr><td><a href="{{route "/s"}}/{{.Token}}" target="_blank">{{route "/s"}}/{{.Token}}</a></td>
 <td>{{.Root}}/{{.Path}}</td><td>{{fmtTime .ExpiresAt}}</td><td>{{if .PasswordHash}}да{{else}}нет{{end}}</td>
-<td><form method="post" action="/shares"><input type="hidden" name="action" value="revoke"><input type="hidden" name="token" value="{{.Token}}"><button>Отозвать</button></form></td></tr>
-{{end}}</table>
+<td><form method="post" action="{{route "/shares"}}"><input type="hidden" name="action" value="revoke"><input type="hidden" name="token" value="{{.Token}}"><button>Отозвать</button></form></td></tr>
+{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "media.html"}}{{template "head.html" .}}
 <h1>Медиа</h1>
-<form method="get" action="/media" class="row">
+<form method="get" action="{{route "/media"}}" class="row">
 <label>Папка: <select name="root">{{range .Cfg.Roots}}<option value="{{.Name}}" {{if eq .Name $.Root}}selected{{end}}>{{.Name}} ({{.Path}})</option>{{end}}</select></label>
 <input name="path" value="{{.Path}}" placeholder="путь внутри (необязательно)" style="min-width:220px">
 <button>Открыть</button>
@@ -388,7 +488,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 
 {{define "backup.html"}}{{template "head.html" .}}
 <h1>Бэкап</h1>
-<form method="post" action="/backup" class="row">
+<form method="post" action="{{route "/backup"}}" class="row">
 <input type="hidden" name="action" value="create">
 <input name="name" placeholder="Название" required>
 <input name="source" placeholder="Исходная папка (сервер)" required style="min-width:240px">
@@ -399,7 +499,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <input name="interval_hours" placeholder="интервал, ч (0=вручную)" style="width:180px">
 <button>Создать задание</button>
 </form>
-<table><tr><th>Задание</th><th>Источник</th><th>Цели</th><th>Расписание</th><th>Последний запуск</th><th></th></tr>
+<div class="table-wrap"><table><tr><th>Задание</th><th>Источник</th><th>Цели</th><th>Расписание</th><th>Последний запуск</th><th></th></tr>
 {{range .Jobs}}<tr>
 <td>{{.Name}}</td><td class="muted">{{.Source}}</td>
 <td>{{range .Targets}}{{.Type}}: {{if eq .Type "local"}}{{.Path}}{{else}}{{.URL}}{{end}}<br>{{end}}</td>
@@ -407,17 +507,17 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <td>{{if .LastRun.IsZero}}—{{else}}{{fmtTime .LastRun}}{{end}}
 {{with index $.Reports .ID}}<br><span class="muted">файлов: {{.Files}}, байт: {{.Bytes}}, пропущено: {{.Skipped}}, ошибок: {{len .Errors}}</span>{{end}}</td>
 <td>
-<form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="run"><input type="hidden" name="id" value="{{.ID}}"><button>Запустить</button></form>
-<form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{.ID}}"><button>Удалить</button></form>
-<form method="post" action="/backup" style="display:inline"><input type="hidden" name="action" value="restore"><input type="hidden" name="id" value="{{.ID}}"><input name="dest" placeholder="куда восстановить" style="width:150px"><button>Восстановить</button></form>
-</td></tr>{{end}}</table>
+<form method="post" action="{{route "/backup"}}" style="display:inline"><input type="hidden" name="action" value="run"><input type="hidden" name="id" value="{{.ID}}"><button>Запустить</button></form>
+<form method="post" action="{{route "/backup"}}" style="display:inline"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{.ID}}"><button>Удалить</button></form>
+<form method="post" action="{{route "/backup"}}" style="display:inline"><input type="hidden" name="action" value="restore"><input type="hidden" name="id" value="{{.ID}}"><input name="dest" placeholder="куда восстановить" style="width:150px"><button>Восстановить</button></form>
+</td></tr>{{end}}</table></div>
 {{template "foot.html" .}}{{end}}
 
 {{define "register.html"}}{{template "head.html" .}}
 <h1>Регистрация</h1>
 {{if .Msg}}<p>{{.Msg}}</p>{{end}}
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
-<form method="post" action="/register">
+<form method="post" action="{{route "/register"}}">
 <label>Логин<br><input name="username" required minlength="3" maxlength="32"></label><br>
 <label>Пароль (минимум 8 символов)<br><input type="password" name="password" required minlength="8"></label><br>
 <button>Отправить заявку</button>
@@ -429,31 +529,63 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 <h1>Заявки на регистрацию</h1>
 {{if .Msg}}<p>{{.Msg}}</p>{{end}}
 {{if .Pending}}
-<table><tr><th>Логин</th><th>Создана</th><th></th></tr>
+<div class="table-wrap"><table><tr><th>Логин</th><th>Создана</th><th></th></tr>
 {{range .Pending}}<tr><td>{{.Name}}</td><td>{{fmtTime .CreatedAt}}</td><td>
-<form method="post" action="/registrations" style="display:inline"><input type="hidden" name="action" value="approve"><input type="hidden" name="id" value="{{.ID}}"><button>Принять</button></form>
-<form method="post" action="/registrations" style="display:inline"><input type="hidden" name="action" value="reject"><input type="hidden" name="id" value="{{.ID}}"><button>Отклонить</button></form>
-</td></tr>{{end}}</table>
+<form method="post" action="{{route "/registrations"}}" style="display:inline"><input type="hidden" name="action" value="approve"><input type="hidden" name="id" value="{{.ID}}"><button>Принять</button></form>
+<form method="post" action="{{route "/registrations"}}" style="display:inline"><input type="hidden" name="action" value="reject"><input type="hidden" name="id" value="{{.ID}}"><button>Отклонить</button></form>
+</td></tr>{{end}}</table></div>
 {{else}}<p class="muted">Заявок нет.</p>{{end}}
 {{template "foot.html" .}}{{end}}
 
 {{define "plugins.html"}}{{template "head.html" .}}
-<h1>Плагины</h1>
-{{if .Msg}}<p>{{.Msg}}</p>{{end}}
+<h1>Плагины и задания</h1>
+{{if .Msg}}<p class="status-note">{{.Msg}}</p>{{end}}
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
-<table><tr><th>Плагин</th><th>Версия</th><th>Тип</th><th>Доступен</th><th>Включён</th><th></th></tr>
-{{range .Plugins}}<tr><td>{{.Name}}<br><span class="muted">{{.Description}}</span></td><td>{{.Version}}</td><td>{{.Kind}}</td>
+<section class="card" aria-labelledby="catalog-heading">
+<h2 id="catalog-heading">Каталог плагинов</h2>
+{{if .Catalog.ReadOnly}}<p class="status-note">Каталог только для чтения: {{.Catalog.Reason}}</p>{{else}}<p>Каталог доступен.</p>{{end}}
+<p>Пакеты принимаются только из подписанного каталога. Произвольные URL установки отсутствуют.</p>
+<p class="warning-note">Пакетные плагины выполняются с полномочиями процесса Mounvix и не являются изолированной песочницей. Учитывайте объявленные издателем возможности до установки.</p>
+<div id="plugin-installations" data-api-url="{{route "/api/v1/plugin-installations"}}" data-source-api="{{route "/api/v1/plugins"}}" aria-live="polite"><p class="muted">Загрузка установленных пакетов…</p></div>
+</section>
+<section class="card" aria-labelledby="installed-heading">
+<h2 id="installed-heading">Источники и включение</h2>
+<div class="table-wrap"><table><tr><th>Плагин</th><th>Версия</th><th>Источник</th><th>Доступен</th><th>Включён</th><th>Действие</th></tr>
+{{range .Plugins}}<tr><td>{{.Name}}<br><span class="muted">{{.Description}}</span></td><td>{{.Version}}</td><td>{{.Source}}</td>
 <td>{{if .Available}}да{{else}}нет{{end}}</td><td>{{if .Enabled}}да{{else}}нет{{end}}</td>
-<td>{{if .Available}}<form method="post" action="/plugins"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}"><button>{{if .Enabled}}Выключить{{else}}Включить{{end}}</button></form>{{end}}</td></tr>{{end}}</table>
-<h2>rclone</h2>
+<td>{{if .Available}}<form method="post" action="{{route "/plugins"}}"><input type="hidden" name="id" value="{{.ID}}"><input type="hidden" name="enabled" value="{{if .Enabled}}0{{else}}1{{end}}"><button>{{if .Enabled}}Выключить{{else}}Включить{{end}}</button></form>{{end}}</td></tr>{{end}}</table></div>
+</section>
+<section class="card" aria-labelledby="pages-heading"><h2 id="pages-heading">Страницы плагинов</h2>
+{{range .PageLinks}}<div class="plugin-page-card"><h3>{{.PluginName}} · {{.PageName}}</h3><iframe class="plugin-page-frame" title="{{.PluginName}} — {{.PageName}}" src="{{.URL}}" sandbox loading="lazy" referrerpolicy="no-referrer"></iframe></div>{{else}}<p class="muted">У включённых пакетных плагинов нет статических страниц.</p>{{end}}
+</section>
+<section class="card" aria-labelledby="jobs-heading"><h2 id="jobs-heading">Журнал заданий</h2>
+<div id="plugin-jobs" data-api-url="{{route "/api/v1/jobs"}}" aria-live="polite"><p class="muted">Загрузка последних заданий…</p></div>
+</section>
+<section class="card" aria-labelledby="rclone-heading"><h2 id="rclone-heading">rclone</h2>
 {{if .Rclone.Installed}}
 <p>Версия: {{.Rclone.Version}}</p>
-<p>Хранилища: {{range .Rclone.Remotes}}{{.}} {{else}}нет{{end}}</p>
-<form method="post" action="/plugins" class="row"><input type="hidden" name="action" value="rclone_sync"><input name="src" placeholder="источник (local или remote:путь)" style="min-width:220px"><input name="dst" placeholder="назначение" style="min-width:220px"><button>rclone sync</button></form>
-{{else}}
-<p class="muted">rclone не установлен. Установите: <code>opkg install rclone</code> (Entware) или <code>apt install rclone</code>.</p>
-{{end}}
-<p class="muted">Манифесты плагинов — <code>data/plugins/*.json</code>.</p>
+{{if .RcloneSourceConfigured}}
+<form id="rclone-sync-form" class="row" data-api-url="{{route "/api/v1/rclone-jobs"}}">
+<label>Источник в разрешённом корне <input name="source_path" required placeholder="папка/файлы"></label>
+<label>Удалённое хранилище <select name="remote_name" required data-remotes-url="{{route "/api/v1/rclone-remotes"}}"><option value="">Загрузка списка…</option></select></label>
+<label>Путь назначения <input name="destination_path" required placeholder="backup/папка"></label>
+<label><input type="checkbox" name="confirmed" required> Я подтверждаю направление синхронизации и возможное удаление файлов на стороне назначения</label>
+<button type="submit">Запустить синхронизацию</button><p class="muted" data-form-status role="status"></p></form>
+{{else}}<p class="warning-note">Разрешённый корень источника rclone не настроен; синхронизация отключена. Произвольные локальные пути не принимаются.</p>{{end}}
+{{else}}<p class="muted">rclone не установлен; встроенная синхронизация недоступна.</p>{{end}}
+</section>
+<script src="{{route "/plugins.js"}}" defer></script>
+{{template "foot.html" .}}{{end}}
+
+{{define "notifications.html"}}{{template "head.html" .}}
+<h1>Уведомления</h1>
+{{if .Err}}<p class="err">{{.Err}}</p>{{end}}
+<div id="notifications" data-api-url="{{route "/api/v1/notifications"}}" data-ws-url="{{route "/api/v1/notifications/ws"}}" data-latest-seq="{{.LatestSeq}}" data-oldest-seq="{{.OldestSeq}}" data-reset="{{.Reset}}" aria-live="polite">
+{{if .Reset}}<p class="status-note">Часть старой истории больше не хранится; ниже показаны доступные события.</p>{{end}}
+<p>Непрочитано: <strong id="notification-unread-count">{{.UnreadCount}}</strong></p>
+<ol id="notification-list">{{range .Events}}<li class="notification-item" data-event-id="{{.EventID}}" data-seq="{{.Seq}}"><span>{{.Summary}}</span> <time>{{fmtTime .CreatedAt}}</time> <a href="{{.TargetRoute}}">Открыть</a> {{if not .IsRead}}<button type="button" data-read-event="{{.EventID}}">Отметить прочитанным</button>{{end}}</li>{{else}}<li class="muted" data-empty-state>Новых уведомлений пока нет.</li>{{end}}</ol>
+<button id="notification-load-older" type="button">Загрузить более старые</button><p id="notification-status" role="status"></p>
+</div>
 {{template "foot.html" .}}{{end}}
 
 {{define "ai.html"}}{{template "head.html" .}}
@@ -461,7 +593,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 {{if .Msg}}<p>{{.Msg}}</p>{{end}}
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
 <h2>Бэкенд (OpenAI-совместимый)</h2>
-<form method="post" action="/ai" class="row">
+<form method="post" action="{{route "/ai"}}" class="row">
 <input type="hidden" name="action" value="save">
 <input name="base_url" value="{{.Cfg.AIBaseURL}}" placeholder="http://host:8080" style="min-width:240px">
 <input name="model" value="{{.Cfg.AIModel}}" placeholder="model id" style="min-width:220px">
@@ -470,7 +602,7 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 </form>
 <p class="muted">Ключ хранится в config.json; пусто — без авторизации.</p>
 <h2>Распознать изображение</h2>
-<form method="post" action="/ai" class="row">
+<form method="post" action="{{route "/ai"}}" class="row">
 <input type="hidden" name="action" value="describe">
 <select name="root">{{range .Cfg.Roots}}<option value="{{.Name}}">{{.Name}}</option>{{end}}</select>
 <input name="path" placeholder="путь к файлу (например, test.png)" style="min-width:260px">
@@ -482,16 +614,19 @@ const panelHTML = `{{define "head.html"}}<!doctype html>
 `
 
 const loginHTML = `{{define "login.html"}}<!doctype html>
-<html lang="{{.Lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mounvix — {{T "login"}}</title><link rel="stylesheet" href="/style.css"></head>
-<body class="login"><div class="card">
-<h1>Mounvix</h1>
+<html lang="{{.Lang}}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mounvix — {{T "login"}}</title><script src="{{.ThemePath}}"></script><link rel="stylesheet" href="{{.StylePath}}"></head>
+<body class="auth-page"><a class="skip-link" href="#main-content">{{T "skip_content"}}</a>
+<header class="auth-toolbar"><a class="brand" href="{{.HomePath}}">Mounvix</a>{{template "themeControl.html" .}}</header>
+<main class="auth-main" id="main-content" tabindex="-1"><section class="auth-card" aria-labelledby="auth-title">
+<h1 id="auth-title">Mounvix</h1>
 {{if .Err}}<p class="err">{{.Err}}</p>{{end}}
-<p><a href="/register">Регистрация</a></p>
-<form method="post" action="/login">
+<p><a href="{{.RegisterPath}}">Регистрация</a></p>
+<form method="post" action="{{.LoginPath}}">
+<input type="hidden" name="next" value="{{.Next}}">
 <label>{{T "username"}}<br><input name="username" autofocus required></label><br>
 <label>{{T "password"}}<br><input type="password" name="password" required></label><br>
 <button>{{T "signin"}}</button>
 </form>
-<p class="muted">Mounvix server</p>
-</div></body></html>{{end}}`
+<p class="muted">Mounvix server</p><p class="muted"><a href="https://github.com/tommilevs/Mounvix">{{T "source_code"}}</a> · AGPL-3.0-only</p>
+</section></main></body></html>{{end}}`

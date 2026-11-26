@@ -33,7 +33,7 @@ func (a *App) backupAuth(w http.ResponseWriter, r *http.Request) (*User, bool) {
 func (a *App) handleBackupPage(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.cookieUser(r)
 	if !ok {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/login"), http.StatusSeeOther)
 		return
 	}
 	if r.Method == http.MethodPost {
@@ -78,7 +78,7 @@ func (a *App) handleBackupPage(w http.ResponseWriter, r *http.Request) {
 				a.store.Audit(u.Name, "backup_delete", r.PostFormValue("id"))
 			}
 		}
-		http.Redirect(w, r, "/backup", http.StatusSeeOther)
+		http.Redirect(w, r, a.routePath("/backup"), http.StatusSeeOther)
 		return
 	}
 	reports := map[string]backup.Report{}
@@ -87,10 +87,11 @@ func (a *App) handleBackupPage(w http.ResponseWriter, r *http.Request) {
 			reports[j.ID] = rep
 		}
 	}
+	cfg := a.configSnapshot()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = a.tmpl.ExecuteTemplate(w, "backup.html", &backupView{
-		Title: "Бэкап", Lang: a.cfg.Lang, Version: version.Version,
-		User: u, Cfg: a.cfg, Jobs: a.backups.List(), Reports: reports,
+		Title: "Бэкап", Lang: cfg.Lang, Version: version.Version,
+		User: u, Cfg: cfg, Jobs: a.backups.List(), Reports: reports,
 	})
 }
 
