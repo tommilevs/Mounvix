@@ -120,7 +120,7 @@ func (a *App) handlePluginsPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	v.Plugins = a.pluginReg.List()
-	v.Catalog = plugins.DefaultCatalogStatus()
+	_, v.Catalog = a.currentPluginCatalog(r.Context())
 	v.Rclone = a.pluginReg.RcloneStatus()
 	for _, effective := range v.Plugins {
 		if effective.Source != plugins.SourcePackage {

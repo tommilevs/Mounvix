@@ -40,6 +40,9 @@ func (a *App) describeImage(ctx context.Context, rootName, rel, prompt string) (
 	if err != nil {
 		return "", err
 	}
+	if a.isAppDataPath(full) {
+		return "", errors.New("path is not available")
+	}
 	st, err := os.Stat(full)
 	if err != nil {
 		return "", errors.New("file not found")

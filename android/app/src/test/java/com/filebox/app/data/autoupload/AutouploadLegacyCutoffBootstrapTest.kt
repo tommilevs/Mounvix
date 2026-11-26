@@ -7,6 +7,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.mounvix.app.data.db.AppDatabase
 import com.mounvix.app.data.db.AutouploadLegacyCutoff
+import com.mounvix.app.data.feed.ProfileSecretStore
+import com.mounvix.app.data.source.RemoteCredentialRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -203,7 +205,11 @@ class AutouploadLegacyCutoffBootstrapTest {
         assertEquals("sftp", adapterChosenBySourceFactory())
     }
 
-    private fun adapterChosenBySourceFactory(): String = when (RemoteSourceFactory.fromPrefs(prefs)) {
+    private val sourceSecrets = InMemoryProfileSecretStore()
+
+    private fun adapterChosenBySourceFactory(): String = when (
+        RemoteSourceFactory.fromPrefs(prefs, RemoteCredentialRepository(prefs, sourceSecrets))
+    ) {
         is com.mounvix.app.data.source.WebDavStorageSource -> "webdav"
         is com.mounvix.app.data.source.SmbStorageSource -> "smb"
         is com.mounvix.app.data.source.SftpStorageSource -> "sftp"
@@ -220,5 +226,21 @@ class AutouploadLegacyCutoffBootstrapTest {
             .putString("webdav_user", "alice")
             .putString("webdav_pass", "not-persisted-in-identity")
             .commit()
+    }
+}
+
+private class InMemoryProfileSecretStore : ProfileSecretStore {
+    private val values = mutableMapOf<String, String>()
+
+    override fun write(profileKey: String, plaintext: String): Result<Unit> {
+        values[profileKey] = plaintext
+        return Result.success(Unit)
+    }
+
+    override fun read(profileKey: String): Result<String?> = Result.success(values[profileKey])
+
+    override fun delete(profileKey: String): Result<Unit> {
+        values.remove(profileKey)
+        return Result.success(Unit)
     }
 }

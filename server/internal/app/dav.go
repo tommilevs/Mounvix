@@ -1,7 +1,10 @@
 package app
 
 import (
+	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tommilevs/Mounvix/server/internal/plugins"
@@ -34,7 +37,7 @@ func (a *App) handleDAV(w http.ResponseWriter, r *http.Request) {
 	}
 	h := &webdav.Handler{
 		Prefix:     "/dav/" + name,
-		FileSystem: webdav.Dir(root.Path),
+		FileSystem: protectedWebDAVFS{root: root.Path, app: a},
 		LockSystem: a.locks,
 	}
 	if r.Method != http.MethodPut {
@@ -51,6 +54,102 @@ func (a *App) handleDAV(w http.ResponseWriter, r *http.Request) {
 		relative := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/dav/"+name), "/")
 		a.publishHook(plugins.HookEvent{EventID: newHookEventID("upload.done"), Kind: "upload.done", Payload: map[string]any{"root": name, "relative_path": relative, "size": r.ContentLength, "status": status}})
 	}
+}
+
+type protectedWebDAVFS struct {
+	root string
+	app  *App
+}
+
+func (fs protectedWebDAVFS) resolve(name string) (string, error) {
+	relative := strings.TrimLeft(filepath.ToSlash(name), "/")
+	full, err := safeJoin(fs.root, relative)
+	if err != nil {
+		return "", os.ErrPermission
+	}
+	return full, nil
+}
+
+func (fs protectedWebDAVFS) Mkdir(ctx context.Context, name string, perm os.FileMode) error {
+	full, err := fs.resolve(name)
+	if err != nil {
+		return err
+	}
+	if fs.app.isAppDataPath(full) {
+		return os.ErrPermission
+	}
+	return webdav.Dir(fs.root).Mkdir(ctx, name, perm)
+}
+
+func (fs protectedWebDAVFS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
+	full, err := fs.resolve(name)
+	if err != nil {
+		return nil, err
+	}
+	if fs.app.isAppDataPath(full) {
+		return nil, os.ErrNotExist
+	}
+	file, err := webdav.Dir(fs.root).OpenFile(ctx, name, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+	return protectedWebDAVFile{File: file, dir: full, app: fs.app}, nil
+}
+
+func (fs protectedWebDAVFS) RemoveAll(ctx context.Context, name string) error {
+	full, err := fs.resolve(name)
+	if err != nil {
+		return err
+	}
+	if fs.app.isAppDataPath(full) || fs.app.containsAppDataPath(full) {
+		return os.ErrPermission
+	}
+	return webdav.Dir(fs.root).RemoveAll(ctx, name)
+}
+
+func (fs protectedWebDAVFS) Rename(ctx context.Context, oldName, newName string) error {
+	oldPath, err := fs.resolve(oldName)
+	if err != nil {
+		return err
+	}
+	newPath, err := fs.resolve(newName)
+	if err != nil {
+		return err
+	}
+	if fs.app.isAppDataPath(oldPath) || fs.app.containsAppDataPath(oldPath) ||
+		fs.app.isAppDataPath(newPath) || fs.app.containsAppDataPath(newPath) {
+		return os.ErrPermission
+	}
+	return webdav.Dir(fs.root).Rename(ctx, oldName, newName)
+}
+
+func (fs protectedWebDAVFS) Stat(ctx context.Context, name string) (os.FileInfo, error) {
+	full, err := fs.resolve(name)
+	if err != nil {
+		return nil, err
+	}
+	if fs.app.isAppDataPath(full) {
+		return nil, os.ErrNotExist
+	}
+	return webdav.Dir(fs.root).Stat(ctx, name)
+}
+
+type protectedWebDAVFile struct {
+	webdav.File
+	dir string
+	app *App
+}
+
+func (f protectedWebDAVFile) Readdir(count int) ([]os.FileInfo, error) {
+	entries, err := f.File.Readdir(count)
+	visible := entries[:0]
+	for _, entry := range entries {
+		if f.app.isAppDataPath(filepath.Join(f.dir, entry.Name())) {
+			continue
+		}
+		visible = append(visible, entry)
+	}
+	return visible, err
 }
 
 type davStatusWriter struct {

@@ -2,6 +2,8 @@ package com.mounvix.app.data.autoupload
 
 import android.content.SharedPreferences
 import android.net.Uri
+import com.mounvix.app.data.source.RemoteCredentialKeys
+import com.mounvix.app.data.source.RemoteCredentialRepository
 import com.mounvix.app.data.source.SftpServer
 import com.mounvix.app.data.source.SftpStorageSource
 import com.mounvix.app.data.source.SmbServer
@@ -24,36 +26,53 @@ data class LegacyReceiverIdentity(
 /** Пересоздаёт удалённый источник по сохранённым настройкам (для фонового воркера). */
 object RemoteSourceFactory {
 
-    fun fromPrefs(prefs: SharedPreferences): StorageSource? {
+    fun fromPrefs(prefs: SharedPreferences, credentials: RemoteCredentialRepository): StorageSource? {
         prefs.getString("webdav_url", null)?.let { url ->
+            val user = prefs.getString("webdav_user", "") ?: ""
+            val password = credentials.read(RemoteCredentialKeys.webDav(url, user), "webdav_pass").getOrThrow()
             return WebDavStorageSource(
                 WebDavServer(
                     baseUrl = url,
-                    user = prefs.getString("webdav_user", "") ?: "",
-                    password = prefs.getString("webdav_pass", "") ?: "",
+                    user = user,
+                    password = password,
                     trustAll = prefs.getBoolean("webdav_trust", true),
                 )
             )
         }
         prefs.getString("smb_host", null)?.let { host ->
+            val share = prefs.getString("smb_share", "all") ?: "all"
+            val domain = prefs.getString("smb_domain", "") ?: ""
+            val user = prefs.getString("smb_user", "") ?: ""
+            val password = credentials.read(
+                RemoteCredentialKeys.smb(host, share, domain, user),
+                "smb_pass",
+            ).getOrThrow()
             return SmbStorageSource(
                 SmbServer(
                     host = host,
-                    share = prefs.getString("smb_share", "all") ?: "all",
-                    domain = prefs.getString("smb_domain", "") ?: "",
-                    user = prefs.getString("smb_user", "") ?: "",
-                    password = prefs.getString("smb_pass", "") ?: "",
+                    share = share,
+                    domain = domain,
+                    user = user,
+                    password = password,
                 )
             )
         }
         prefs.getString("sftp_host", null)?.let { host ->
+            val port = prefs.getInt("sftp_port", 22)
+            val basePath = prefs.getString("sftp_base", "/") ?: "/"
+            val user = prefs.getString("sftp_user", "") ?: ""
+            val password = credentials.read(
+                RemoteCredentialKeys.sftp(host, port, basePath, user),
+                "sftp_pass",
+            ).getOrThrow()
             return SftpStorageSource(
                 SftpServer(
                     host = host,
-                    port = prefs.getInt("sftp_port", 22),
-                    user = prefs.getString("sftp_user", "") ?: "",
-                    password = prefs.getString("sftp_pass", "") ?: "",
-                    basePath = prefs.getString("sftp_base", "/") ?: "/",
+                    port = port,
+                    user = user,
+                    password = password,
+                    basePath = basePath,
+                    hostKeyFingerprint = prefs.getString("sftp_host_key_fingerprint", "") ?: "",
                 )
             )
         }
@@ -65,16 +84,45 @@ object RemoteSourceFactory {
         val rawDestination = prefs.getString("autoupload_dest", "Mounvix") ?: "Mounvix"
         val destination = runCatching { AutouploadIdentity.normalizeDestination(rawDestination) }
             .getOrNull() ?: return null
-        val source = fromPrefs(prefs) ?: return null
-        val (adapter, accountId) = when (source) {
-            is WebDavStorageSource -> "webdav" to (prefs.getString("webdav_user", "") ?: "")
-            is SmbStorageSource -> {
-                val domain = prefs.getString("smb_domain", "") ?: ""
-                val user = prefs.getString("smb_user", "") ?: ""
-                "smb" to "$domain\\$user"
+        val (source, adapter, accountId) = when (val url = prefs.getString("webdav_url", null)) {
+            null -> when (val host = prefs.getString("smb_host", null)) {
+                null -> {
+                    val sftpHost = prefs.getString("sftp_host", null) ?: return null
+                    val port = prefs.getInt("sftp_port", 22)
+                    val user = prefs.getString("sftp_user", "") ?: ""
+                    val source = SftpStorageSource(
+                        SftpServer(
+                            host = sftpHost,
+                            port = port,
+                            user = user,
+                            basePath = prefs.getString("sftp_base", "/") ?: "/",
+                            hostKeyFingerprint = prefs.getString("sftp_host_key_fingerprint", "") ?: "",
+                        )
+                    )
+                    Triple(source, "sftp", user)
+                }
+                else -> {
+                    val share = prefs.getString("smb_share", "all") ?: "all"
+                    val domain = prefs.getString("smb_domain", "") ?: ""
+                    val user = prefs.getString("smb_user", "") ?: ""
+                    val source = SmbStorageSource(
+                        SmbServer(host = host, share = share, domain = domain, user = user, password = "")
+                    )
+                    Triple(source, "smb", "$domain\\$user")
+                }
             }
-            is SftpStorageSource -> "sftp" to (prefs.getString("sftp_user", "") ?: "")
-            else -> return null
+            else -> {
+                val user = prefs.getString("webdav_user", "") ?: ""
+                val source = WebDavStorageSource(
+                    WebDavServer(
+                        baseUrl = url,
+                        user = user,
+                        password = "",
+                        trustAll = prefs.getBoolean("webdav_trust", true),
+                    )
+                )
+                Triple(source, "webdav", user)
+            }
         }
         val rootIdentity = normalizeRootIdentity(source.rootId()) ?: return null
         return LegacyReceiverIdentity(adapter, rootIdentity, accountId, destination)

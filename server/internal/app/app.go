@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -27,38 +28,85 @@ type packageRemovalManager interface {
 	Remove(context.Context, string) error
 }
 
+type packageInstallManager interface {
+	CanInstall() bool
+	InstallFormat() (string, bool)
+	InstallCatalogPackage(context.Context, string, plugins.CatalogAsset) error
+}
+
 // App — HTTP-приложение Mounvix (панель + WebDAV + API).
 type App struct {
-	cfgMu             sync.RWMutex
-	cfg               Config
-	cfgPath           string
-	store             *Store
-	mux               *http.ServeMux
-	tmpl              *template.Template
-	locks             webdav.LockSystem
-	shares            *share.Manager
-	backups           *backup.Manager
-	feeds             *feeds.Manager
-	regs              *RegStore
-	pluginReg         *plugins.Registry
-	jobStore          *plugins.JobStore
-	jobManager        *plugins.JobManager
-	runtime           *plugins.Runtime
-	hookStore         *plugins.HookStore
-	notifications     *plugins.NotificationStore
-	rcloneAdapter     plugins.RcloneAdapter
-	packageInstaller  packageRemovalManager
-	pluginOperationMu sync.Mutex
-	ctx               context.Context
-	cancel            context.CancelFunc
-	background        sync.WaitGroup
-	started           time.Time
+	cfgMu                  sync.RWMutex
+	cfg                    Config
+	cfgPath                string
+	store                  *Store
+	mux                    *http.ServeMux
+	tmpl                   *template.Template
+	locks                  webdav.LockSystem
+	shares                 *share.Manager
+	backups                *backup.Manager
+	feeds                  *feeds.Manager
+	regs                   *RegStore
+	pluginReg              *plugins.Registry
+	jobStore               *plugins.JobStore
+	jobManager             *plugins.JobManager
+	runtime                *plugins.Runtime
+	hookStore              *plugins.HookStore
+	notifications          *plugins.NotificationStore
+	rcloneAdapter          plugins.RcloneAdapter
+	packageInstaller       packageRemovalManager
+	packageInstallExecutor packageInstallManager
+	catalogMu              sync.RWMutex
+	catalogSource          plugins.CatalogSource
+	pluginOperationMu      sync.Mutex
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	background             sync.WaitGroup
+	started                time.Time
+}
+
+// SetCatalogSource configures the signed catalog source before the HTTP server starts.
+func (a *App) SetCatalogSource(source plugins.CatalogSource) {
+	if a == nil {
+		return
+	}
+	a.catalogMu.Lock()
+	a.catalogSource = source
+	a.catalogMu.Unlock()
 }
 
 func (a *App) configSnapshot() Config {
 	a.cfgMu.RLock()
 	defer a.cfgMu.RUnlock()
 	return a.cfg
+}
+
+func (a *App) currentPluginCatalog(ctx context.Context) (plugins.Catalog, plugins.CatalogStatus) {
+	status := plugins.DefaultCatalogStatus()
+	a.catalogMu.RLock()
+	source := a.catalogSource
+	a.catalogMu.RUnlock()
+	if source == nil {
+		a.setPackageCatalogVerified(false)
+		return plugins.Catalog{}, status
+	}
+	catalog, err := source.Fetch(ctx)
+	if err != nil || !catalog.Verified() {
+		a.setPackageCatalogVerified(false)
+		status.Reason = "catalog fetch or signature verification failed"
+		return plugins.Catalog{}, status
+	}
+	status.ReadOnly = false
+	status.KeyID = catalog.SignerKeyID
+	status.Reason = ""
+	a.setPackageCatalogVerified(true)
+	return catalog, status
+}
+
+func (a *App) setPackageCatalogVerified(verified bool) {
+	if gate, ok := a.packageInstaller.(interface{ SetCatalogVerified(bool) }); ok {
+		gate.SetCatalogVerified(verified)
+	}
 }
 
 func New(cfg Config, cfgPath string) (*App, error) {
@@ -76,7 +124,7 @@ func New(cfg Config, cfgPath string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	bk, err := backup.New(cfg.DataDir)
+	bk, err := backup.New(cfg.DataDir, filepath.Join(cfg.DataDir, adminBootstrapPasswordFile))
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +190,12 @@ func New(cfg Config, cfgPath string) (*App, error) {
 			return "rclone job completed", nil
 		},
 		func(ctx context.Context, job plugins.JobRecord) (string, error) {
+			if job.Operation == "install" || job.Operation == "update" {
+				if app == nil {
+					return "", errors.New("package installation is unavailable")
+				}
+				return app.executePackageInstall(ctx, job)
+			}
 			if job.Operation != "remove" {
 				return "", errors.New("unsupported package job operation")
 			}
@@ -204,7 +258,7 @@ func New(cfg Config, cfgPath string) (*App, error) {
 			}
 		}
 	}
-	a = &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, feeds: feedManager, regs: rg, pluginReg: pl, jobStore: jobStore, jobManager: jobManager, runtime: runtime, hookStore: hookStore, notifications: notifications, rcloneAdapter: rcloneAdapter, packageInstaller: packageInstaller, ctx: appCtx, cancel: cancel, started: time.Now(), locks: webdav.NewMemLS()}
+	a = &App{cfg: cfg, cfgPath: cfgPath, store: st, shares: sh, backups: bk, feeds: feedManager, regs: rg, pluginReg: pl, jobStore: jobStore, jobManager: jobManager, runtime: runtime, hookStore: hookStore, notifications: notifications, rcloneAdapter: rcloneAdapter, packageInstaller: packageInstaller, packageInstallExecutor: packageInstaller, ctx: appCtx, cancel: cancel, started: time.Now(), locks: webdav.NewMemLS()}
 	app = a
 	bk.SetReportCallback(func(report backup.Report) {
 		a.publishHook(plugins.HookEvent{EventID: newHookEventID("backup.done"), Kind: "backup.done", Payload: map[string]any{"job_id": report.JobID, "files": report.Files, "bytes": report.Bytes, "skipped": report.Skipped, "error_count": len(report.Errors), "status": "completed"}})

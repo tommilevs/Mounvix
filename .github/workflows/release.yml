@@ -2,69 +2,159 @@ name: release
 
 on:
   push:
-    tags: ['v*']
-  workflow_dispatch:
+    tags:
+      - 'v*'
 
 permissions:
   contents: write
+
+concurrency:
+  group: mounvix-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate release tag
+        id: release-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" || "${GITHUB_REF_NAME}" != "v${version}" || ! "${version}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release builds require a stable vMAJOR.MINOR.PATCH tag; got ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
-      - name: Test
-        run: cd server && go test ./...
-      - name: Cross-build
-        run: VERSION="${GITHUB_REF_NAME#v}" ./scripts/build-server.sh
-      - name: Packages
+          cache-dependency-path: server/go.sum
+
+      - name: Go tests, vet, and compile
+        working-directory: server
         run: |
-          V="${GITHUB_REF_NAME#v}"
-          for a in arm64 arm mipsle mips amd64 386; do ./scripts/make-ipk.sh "$a" "$V"; done
-          for a in amd64 arm64 arm 386; do ./scripts/make-deb.sh "$a" "$V" || true; done
-          for a in arm64 arm mipsle mips amd64 386; do ./scripts/package-tar.sh "$a" "$V"; done
-      - name: opkg feed
-        run: ./scripts/make-feed.sh "${GITHUB_REF_NAME#v}"
-      - name: Setup Java
-        uses: actions/setup-java@v4
+          go test -race ./...
+          go vet ./...
+          go build ./...
+
+      - name: Verify the pinned-key plugin catalog signature
+        working-directory: server
+        run: go run ./cmd/sign-plugin-catalog --verify --index ../plugins/index.json --signature ../plugins/index.json.sig
+
+      - name: Cross-build server binaries
+        env:
+          VERSION: ${{ steps.release-version.outputs.version }}
+        run: ./scripts/build-server.sh
+
+      - name: Build Entware, Debian, tar, and opkg feed artifacts
+        env:
+          VERSION: ${{ steps.release-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in arm64 arm mipsle mips amd64 386; do
+            ./scripts/make-ipk.sh "$arch" "$VERSION"
+          done
+          for arch in amd64 arm64 arm 386; do
+            ./scripts/make-deb.sh "$arch" "$VERSION"
+          done
+          for arch in arm64 arm mipsle mips amd64 386; do
+            ./scripts/package-tar.sh "$arch" "$VERSION"
+          done
+          ./scripts/qa-packaging.sh "$VERSION"
+          ./scripts/make-feed.sh "$VERSION"
+          shopt -s nullglob
+          ipks=(dist/ipk/mounvix_"${VERSION}"_*.ipk)
+          debs=(dist/deb/mounvix-server_"${VERSION}"_*.deb)
+          tars=(dist/tar/mounvix-server_"${VERSION}"_linux_*.tar.gz)
+          [[ ${#ipks[@]} -eq 6 ]] || { echo "Expected 6 IPKs, found ${#ipks[@]}" >&2; exit 1; }
+          [[ ${#debs[@]} -eq 4 ]] || { echo "Expected 4 DEBs, found ${#debs[@]}" >&2; exit 1; }
+          [[ ${#tars[@]} -eq 6 ]] || { echo "Expected 6 tarballs, found ${#tars[@]}" >&2; exit 1; }
+
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Android APK
+
+      - name: Build, sign, and verify Android release APK
         env:
+          VERSION: ${{ steps.release-version.outputs.version }}
           KEYSTORE_B64: ${{ secrets.MOUNVIX_KEYSTORE_B64 }}
           MOUNVIX_STORE_PASSWORD: ${{ secrets.MOUNVIX_STORE_PASSWORD }}
           MOUNVIX_KEY_ALIAS: ${{ secrets.MOUNVIX_KEY_ALIAS }}
           MOUNVIX_KEY_PASSWORD: ${{ secrets.MOUNVIX_KEY_PASSWORD }}
+        shell: bash
         run: |
+          set -euo pipefail
+          : "${KEYSTORE_B64:?MOUNVIX_KEYSTORE_B64 secret is required; refusing to publish an unsigned or debug APK}"
+          : "${MOUNVIX_STORE_PASSWORD:?MOUNVIX_STORE_PASSWORD secret is required}"
+          : "${MOUNVIX_KEY_ALIAS:?MOUNVIX_KEY_ALIAS secret is required}"
+          : "${MOUNVIX_KEY_PASSWORD:?MOUNVIX_KEY_PASSWORD secret is required}"
+
           cd android
-          V="${GITHUB_REF_NAME#v}"
-          if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > /tmp/mounvix.jks
-            export MOUNVIX_KEYSTORE=/tmp/mounvix.jks
-            ./gradlew assembleRelease --no-daemon
-            cp app/build/outputs/apk/release/app-release.apk "../dist/mounvix-android-${V}.apk"
-          else
-            ./gradlew assembleDebug --no-daemon
-            cp app/build/outputs/apk/debug/app-debug.apk "../dist/mounvix-android-${V}-debug.apk"
-          fi
-      - name: Upload artifacts
+          android_version="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)"
+          android_version_code="$(sed -n 's/^[[:space:]]*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts)"
+          [[ "$android_version" == "$VERSION" ]] || { echo "Android versionName=$android_version does not match tag $VERSION" >&2; exit 1; }
+          [[ "$android_version_code" == "4" ]] || { echo "Expected Android versionCode=4 for v0.2.0; found $android_version_code" >&2; exit 1; }
+
+          umask 077
+          keystore_path="$(mktemp "$RUNNER_TEMP/mounvix-keystore.XXXXXX")"
+          trap 'rm -f "$keystore_path"' EXIT
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$keystore_path"
+          test -s "$keystore_path"
+          export MOUNVIX_KEYSTORE="$keystore_path"
+          keytool -list -keystore "$MOUNVIX_KEYSTORE" -storepass "$MOUNVIX_STORE_PASSWORD" -alias "$MOUNVIX_KEY_ALIAS" >/dev/null
+
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleRelease --no-daemon
+          apk="app/build/outputs/apk/release/app-release.apk"
+          test -s "$apk"
+
+          android_sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          [[ -n "$android_sdk" ]] || { echo 'Android SDK path is missing' >&2; exit 1; }
+          apksigner="$(find "$android_sdk/build-tools" -type f -name apksigner -print | sort -V | tail -n 1)"
+          aapt="$(find "$android_sdk/build-tools" -type f -name aapt -print | sort -V | tail -n 1)"
+          [[ -x "$apksigner" && -x "$aapt" ]] || { echo 'apksigner or aapt is missing from Android build-tools' >&2; exit 1; }
+          signature_info="$("$apksigner" verify --verbose --print-certs "$apk")"
+          actual_cert_sha256="$(printf '%s\n' "$signature_info" | awk -F': ' '/Signer #1 certificate SHA-256 digest:/ {print tolower($2); exit}')"
+          expected_cert_sha256='7a79bed859e5aad1bbc25a077d087ac0f1a1310837d161e1de6470e9d62faad9'
+          [[ "$actual_cert_sha256" == "$expected_cert_sha256" ]] || { echo "APK signing certificate changed: $actual_cert_sha256" >&2; exit 1; }
+          badging="$("$aapt" dump badging "$apk")"
+          [[ "$badging" == *"package: name='com.mounvix.app' versionCode='4' versionName='$VERSION'"* ]] || { echo 'APK manifest package/version does not match the release tag' >&2; exit 1; }
+          mkdir -p ../dist
+          cp "$apk" "../dist/mounvix-android-${VERSION}.apk"
+
+      - name: Assemble release assets and checksums
+        env:
+          VERSION: ${{ steps.release-version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release-assets
+          cp dist/ipk/mounvix_"${VERSION}"_*.ipk dist/release-assets/
+          cp dist/deb/mounvix-server_"${VERSION}"_*.deb dist/release-assets/
+          cp dist/tar/mounvix-server_"${VERSION}"_linux_*.tar.gz dist/release-assets/
+          cp dist/feed/Packages dist/feed/Packages.gz dist/release-assets/
+          cp plugins/index.json plugins/index.json.sig dist/release-assets/
+          cp "dist/mounvix-android-${VERSION}.apk" dist/release-assets/
+          (cd dist/release-assets && sha256sum * > ../sha256sums.txt)
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: mounvix-dist
           path: dist/
-      - name: Publish release
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
-            dist/server/sha256sums.txt
-            dist/ipk/*.ipk
-            dist/deb/*.deb
-            dist/tar/*.tar.gz
-            dist/feed/Packages
-            dist/feed/Packages.gz
-            dist/mounvix-android-*.apk
+            dist/sha256sums.txt
+            dist/release-assets/*

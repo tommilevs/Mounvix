@@ -11,7 +11,9 @@ import androidx.work.Data
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import com.mounvix.app.data.db.AppDatabase
+import com.mounvix.app.data.feed.NativeProfileSecretStore
 import com.mounvix.app.data.notify.Notifier
+import com.mounvix.app.data.source.RemoteCredentialRepository
 import com.mounvix.app.data.source.StorageSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +31,7 @@ class AutouploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
 
     internal data class Dependencies(
         val databaseProvider: (Context) -> AppDatabase = { context -> AppDatabase.get(context) },
-        val sourceFactory: (SharedPreferences) -> StorageSource? = RemoteSourceFactory::fromPrefs,
+        val sourceFactory: ((SharedPreferences) -> StorageSource?)? = null,
         val wifiGuardFactory: (Context) -> AutouploadNetworkGuard = ::AutouploadWifiGuard,
         val readerFactory: (ContentResolver) -> AutouploadMetadataReader = ::AutouploadSafReader,
         val inputStreamFactory: (Context, Uri) -> InputStream? = { context, uri ->
@@ -106,7 +108,15 @@ class AutouploadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
             repository = runRepository
             stateReady = true
 
-            val source = dependencies.sourceFactory(prefs)
+            val source = dependencies.sourceFactory?.invoke(prefs) ?: if (dependencies.sourceFactory == null) {
+                val credentialRepository = RemoteCredentialRepository(
+                    prefs,
+                    NativeProfileSecretStore(applicationContext),
+                )
+                RemoteSourceFactory.fromPrefs(prefs, credentialRepository)
+            } else {
+                null
+            }
             if (source == null) {
                 outcome = "ERROR"
                 lastSafeErrorClass = "RemoteSourceUnavailable"

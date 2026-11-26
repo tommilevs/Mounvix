@@ -25,6 +25,18 @@ class FeedUiContractTest {
     }
 
     @Test
+    fun rootAcceptsServerEventOpenRequests() {
+        val root = loadClass("com.mounvix.app.ui.MounvixRootKt")
+        assertNotNull("MounvixRoot should expose server-event tap requests", root)
+        assertTrue(
+            "MounvixRoot should accept a server target route",
+            root!!.declaredMethods.any { method ->
+                method.name == "MounvixRoot" && method.parameterTypes.contains(String::class.java)
+            },
+        )
+    }
+
+    @Test
     fun notificationIntentRouterRecognizesOnlyMemoriesAction() {
         val router = loadClass("com.mounvix.app.data.notify.FeedNotificationIntentRouter")
         assertNotNull("notification intent routing should be independently testable", router)

@@ -8,7 +8,6 @@ import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.sftp.FileMode
 import net.schmizz.sshj.sftp.OpenMode
 import net.schmizz.sshj.sftp.SFTPClient
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
@@ -24,6 +23,7 @@ data class SftpServer(
     val user: String = "",
     val password: String = "",
     val basePath: String = "/",
+    val hostKeyFingerprint: String = "",
 )
 
 /**
@@ -51,7 +51,7 @@ class SftpStorageSource(private val server: SftpServer) : StorageSource {
         val client = SSHClient()
         var sftp: SFTPClient? = null
         try {
-            client.addHostKeyVerifier(PromiscuousVerifier())
+            client.addHostKeyVerifier(SftpHostKeyFingerprint.verifier(server.hostKeyFingerprint))
             client.connect(server.host, server.port)
             client.authPassword(server.user, server.password.toCharArray())
             sftp = client.newSFTPClient()
@@ -189,7 +189,7 @@ class SftpStorageSource(private val server: SftpServer) : StorageSource {
 
         try {
             signal.throwIfCanceled()
-            client.addHostKeyVerifier(PromiscuousVerifier())
+            client.addHostKeyVerifier(SftpHostKeyFingerprint.verifier(server.hostKeyFingerprint))
             client.connect(server.host, server.port)
             signal.throwIfCanceled()
             client.authPassword(server.user, server.password.toCharArray())

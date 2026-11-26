@@ -167,9 +167,19 @@ class ServerNotificationApiTest {
 
         val error = runCatching { api.getServerNotifications(after = 2L, limit = 10) }.exceptionOrNull()
 
-        assertTrue(error is IOException)
-        assertTrue(error?.message.orEmpty().contains("session expired"))
+        assertTrue(error is MounvixHttpException)
+        assertEquals(401, (error as MounvixHttpException).statusCode)
+        assertTrue((error as MounvixHttpException).message.orEmpty().contains("session expired"))
         assertEquals(4, server.requestCount)
+    }
+
+    @Test
+    fun healthVersionUsesTheConfiguredBasePath() = runBlocking {
+        api.setActiveProfile(profile)
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"ok":true,"version":"1.2.3","uptime_s":1}"""))
+
+        assertEquals("1.2.3", api.getHealthVersion())
+        assertEquals("/mounvix/health", server.takeRequest().path)
     }
 
     @Test
@@ -180,8 +190,9 @@ class ServerNotificationApiTest {
 
         val error = runCatching { api.getServerNotifications(after = 0L, limit = 10) }.exceptionOrNull()
 
-        assertTrue(error is IOException)
-        assertTrue(error?.message.orEmpty().contains("HTTP 403"))
+        assertTrue(error is MounvixHttpException)
+        assertEquals(403, (error as MounvixHttpException).statusCode)
+        assertTrue((error as MounvixHttpException).message.orEmpty().contains("HTTP 403"))
         assertEquals(2, server.requestCount)
     }
 

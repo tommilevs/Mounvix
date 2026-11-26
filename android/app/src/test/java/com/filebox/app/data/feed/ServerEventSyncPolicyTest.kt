@@ -41,6 +41,7 @@ class ServerEventSyncPolicyTest {
 
         assertEquals(listOf("event-11"), plan.alerts.map { it.eventId })
         assertEquals("Plugin job finished safely.", plan.alerts.single().summary)
+        assertEquals("/mounvix/notifications/event-11", plan.alerts.single().targetRoute)
         assertEquals(12L, plan.nextCursor)
         assertTrue(!plan.historyGap)
     }

@@ -139,7 +139,7 @@ func TestSettingsFeedAdminOnly(t *testing.T) {
 		t.Fatalf("non-admin changed feed config: %+v", a.cfg.Feeds)
 	}
 
-	admin := feedLoginClient(t, srv, "admin", "1234567890")
+	admin := feedLoginClient(t, srv, "admin", testAdminPassword)
 	resp, err = admin.PostForm(srv.URL+"/settings", feedSettingsValues())
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestSettingsFeedValidation(t *testing.T) {
 			a, _ := newTestApp(t)
 			srv := httptest.NewServer(a)
 			defer srv.Close()
-			admin := feedLoginClient(t, srv, "admin", "1234567890")
+			admin := feedLoginClient(t, srv, "admin", testAdminPassword)
 			values := feedSettingsValues()
 			tc.change(values)
 			resp, err := admin.PostForm(srv.URL+"/settings", values)
@@ -257,7 +257,7 @@ func TestSettingsFeedControlsLocalizeForRussianAndEnglish(t *testing.T) {
 	a, _ := newTestApp(t)
 	srv := httptest.NewServer(a)
 	defer srv.Close()
-	admin := feedLoginClient(t, srv, "admin", "1234567890")
+	admin := feedLoginClient(t, srv, "admin", testAdminPassword)
 
 	resp, err := admin.Get(srv.URL + "/settings")
 	if err != nil {

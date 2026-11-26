@@ -199,7 +199,7 @@ func (a *App) visibleFeedCard(u *User, card feeds.Card) feedAPICard {
 			continue
 		}
 		full, err := safeJoin(root.Path, item.Path)
-		if err != nil {
+		if err != nil || a.isAppDataPath(full) {
 			continue
 		}
 		info, err := os.Stat(full)

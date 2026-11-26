@@ -29,7 +29,7 @@ func stringsRU() map[string]string {
 		"weekday_mon": "Пн", "weekday_tue": "Вт", "weekday_wed": "Ср", "weekday_thu": "Чт", "weekday_fri": "Пт", "weekday_sat": "Сб", "weekday_sun": "Вс",
 		"no_access": "Нет доступа", "acl": "Доступ к папкам (чтение/запись)", "create": "Создать",
 		"theme": "Тема", "theme_dark": "Тёмная", "theme_light": "Светлая", "theme_system": "Система",
-		"menu": "Меню", "nav_label": "Основная навигация", "skip_content": "Перейти к содержимому", "close_menu": "Закрыть меню",
+		"menu": "Меню", "nav_label": "Основная навигация", "skip_content": "Перейти к содержимому", "close_menu": "Закрыть меню", "source_code": "Исходный код",
 	}
 }
 
@@ -53,7 +53,7 @@ func stringsEN() map[string]string {
 		"weekday_mon": "Mon", "weekday_tue": "Tue", "weekday_wed": "Wed", "weekday_thu": "Thu", "weekday_fri": "Fri", "weekday_sat": "Sat", "weekday_sun": "Sun",
 		"no_access": "No access", "acl": "Folder access (read/write)", "create": "Create",
 		"theme": "Theme", "theme_dark": "Dark", "theme_light": "Light", "theme_system": "System",
-		"menu": "Menu", "nav_label": "Primary navigation", "skip_content": "Skip to content", "close_menu": "Close menu",
+		"menu": "Menu", "nav_label": "Primary navigation", "skip_content": "Skip to content", "close_menu": "Close menu", "source_code": "Source code",
 	}
 }
 
@@ -338,7 +338,7 @@ const panelHTML = `{{define "themeControl.html"}}<label class="theme-control" fo
 </header>
 <main id="main-content" tabindex="-1">
 {{end}}
-{{define "foot.html"}}</main><footer class="site-footer">Mounvix {{.Version}}</footer></div></div>{{if and .User .User.IsAdmin}}<script src="{{route "/notifications.js"}}" defer></script>{{end}}</body></html>{{end}}
+{{define "foot.html"}}</main><footer class="site-footer">Mounvix {{.Version}} · <a href="https://github.com/tommilevs/Mounvix">{{T "source_code"}}</a> · AGPL-3.0-only</footer></div></div>{{if and .User .User.IsAdmin}}<script src="{{route "/notifications.js"}}" defer></script>{{end}}</body></html>{{end}}
 
 {{define "dashboard.html"}}{{template "head.html" .}}
 <h1>{{T "overview"}}</h1>
@@ -628,5 +628,5 @@ const loginHTML = `{{define "login.html"}}<!doctype html>
 <label>{{T "password"}}<br><input type="password" name="password" required></label><br>
 <button>{{T "signin"}}</button>
 </form>
-<p class="muted">Mounvix server</p>
+<p class="muted">Mounvix server</p><p class="muted"><a href="https://github.com/tommilevs/Mounvix">{{T "source_code"}}</a> · AGPL-3.0-only</p>
 </section></main></body></html>{{end}}`

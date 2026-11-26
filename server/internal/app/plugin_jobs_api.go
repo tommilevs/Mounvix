@@ -5,13 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
+	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/tommilevs/Mounvix/server/internal/plugins"
+	"github.com/tommilevs/Mounvix/server/internal/version"
 )
 
 const maxPluginAPIRequestBytes = 64 << 10
@@ -63,10 +67,11 @@ func (a *App) handlePluginCatalogAPI(w http.ResponseWriter, r *http.Request) {
 		writePluginAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
+	catalog, status := a.currentPluginCatalog(r.Context())
 	writePluginAPIJSON(w, http.StatusOK, struct {
 		Catalog plugins.CatalogStatus  `json:"catalog"`
 		Plugins []plugins.CatalogEntry `json:"plugins"`
-	}{Catalog: plugins.DefaultCatalogStatus(), Plugins: []plugins.CatalogEntry{}})
+	}{Catalog: status, Plugins: catalog.Plugins})
 }
 
 var pluginAPIID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
@@ -75,6 +80,8 @@ type pendingPackageOperation struct {
 	RunID     string            `json:"run_id"`
 	Operation string            `json:"operation"`
 	Status    plugins.JobStatus `json:"status"`
+	Version   string            `json:"version,omitempty"`
+	record    plugins.JobRecord `json:"-"`
 }
 
 type pluginInstallationView struct {
@@ -163,7 +170,94 @@ func (a *App) handlePluginInstallationsAPI(w http.ResponseWriter, r *http.Reques
 			writePluginAPIJSON(w, http.StatusOK, map[string]any{"item": item, "noop": true})
 			return
 		}
-		writePluginAPIError(w, http.StatusConflict, "catalog_read_only", "the signed plugin catalog is unavailable; installation changes are disabled")
+		operation := "install"
+		if err == nil && item.PackagePresent {
+			operation = "update"
+		}
+		jobRequest, err := packageInstallRequest(user.Name, id, operation, request.Version, strings.TrimSpace(r.Header.Get("Idempotency-Key")))
+		if err != nil {
+			writePluginAPIError(w, http.StatusBadRequest, "invalid_request", "package installation request is invalid")
+			return
+		}
+		prior, found, lookupErr := a.jobManager.FindIdempotency(r.Context(), jobRequest)
+		if errors.Is(lookupErr, plugins.ErrIdempotencyConflict) {
+			writePluginAPIError(w, http.StatusConflict, "idempotency_conflict", "Idempotency-Key was already used for a different request")
+			return
+		}
+		if lookupErr != nil {
+			writePluginAPIError(w, http.StatusServiceUnavailable, "unavailable", "package installation state is unavailable")
+			return
+		}
+		if found {
+			writePluginAPIJSON(w, http.StatusAccepted, map[string]any{"job": prior})
+			return
+		}
+		if item.PendingOperation != nil {
+			pending := item.PendingOperation
+			if (pending.Operation == "install" || pending.Operation == "update") && pending.Version == request.Version {
+				writePluginAPIJSON(w, http.StatusAccepted, map[string]any{"job": pending.record})
+				return
+			}
+			writePluginAPIError(w, http.StatusConflict, "package_busy", "a different package operation is already pending")
+			return
+		}
+		activePluginJob, busyErr := a.hasActivePluginJob(r.Context(), id)
+		if busyErr != nil {
+			writePluginAPIError(w, http.StatusServiceUnavailable, "unavailable", "plugin job state is unavailable")
+			return
+		}
+		if activePluginJob {
+			writePluginAPIError(w, http.StatusConflict, "package_busy", "a plugin job is active")
+			return
+		}
+		catalog, status := a.currentPluginCatalog(r.Context())
+		if status.ReadOnly {
+			writePluginAPIError(w, http.StatusConflict, "catalog_read_only", "the signed plugin catalog is unavailable; installation changes are disabled")
+			return
+		}
+		if a.packageInstallExecutor == nil {
+			writePluginAPIError(w, http.StatusConflict, "installation_unavailable", "package installation is unavailable on this platform")
+			return
+		}
+		format, supported := a.packageInstallExecutor.InstallFormat()
+		if !supported || format == "" || !a.packageInstallExecutor.CanInstall() {
+			writePluginAPIError(w, http.StatusConflict, "installation_unavailable", "package installation is unavailable on this platform")
+			return
+		}
+		var catalogVersion string
+		for _, entry := range catalog.Plugins {
+			if entry.ID == id {
+				catalogVersion = entry.Version
+				break
+			}
+		}
+		if catalogVersion == "" {
+			writePluginAPIError(w, http.StatusConflict, "catalog_plugin_unavailable", "plugin is not available in the signed catalog")
+			return
+		}
+		if catalogVersion != request.Version {
+			writePluginAPIError(w, http.StatusConflict, "catalog_version_unavailable", "the requested version is not present in the signed catalog")
+			return
+		}
+		asset, assetErr := catalog.SelectAsset(id, format, version.Version, runtime.GOARCH)
+		if assetErr != nil || asset.Version != request.Version {
+			writePluginAPIError(w, http.StatusConflict, "catalog_asset_unavailable", "no verified package asset matches this platform and version")
+			return
+		}
+		run, enqueueErr := a.jobManager.Enqueue(r.Context(), jobRequest)
+		if errors.Is(enqueueErr, plugins.ErrIdempotencyConflict) {
+			writePluginAPIError(w, http.StatusConflict, "idempotency_conflict", "Idempotency-Key was already used for a different request")
+			return
+		}
+		if errors.Is(enqueueErr, plugins.ErrJobQueueFull) {
+			writePluginAPIError(w, http.StatusServiceUnavailable, "queue_full", "package job queue is full")
+			return
+		}
+		if enqueueErr != nil {
+			writePluginAPIError(w, http.StatusServiceUnavailable, "unavailable", "package installation could not be queued")
+			return
+		}
+		writePluginAPIJSON(w, http.StatusAccepted, map[string]any{"job": run})
 	case http.MethodDelete:
 		if !validPluginIdempotencyKey(r) {
 			writePluginAPIError(w, http.StatusBadRequest, "invalid_idempotency_key", "one valid Idempotency-Key header is required")
@@ -258,17 +352,38 @@ func (a *App) pluginInstallations(ctx context.Context) (pluginInstallationsRespo
 		if run.Kind != "package" || (run.Status != plugins.JobStatusQueued && run.Status != plugins.JobStatusRunning) {
 			continue
 		}
+		if run.Operation == "install" || run.Operation == "update" {
+			fullRun, found, lookupErr := a.jobStore.GetPendingPackageOperation(ctx, run.RunID)
+			if lookupErr != nil {
+				return pluginInstallationsResponse{}, lookupErr
+			}
+			if !found {
+				continue
+			}
+			run = fullRun
+		}
 		id := run.PluginID
 		if id == "" {
 			id = run.JobID
 		}
 		if pluginAPIID.MatchString(id) {
-			pending[id] = &pendingPackageOperation{RunID: run.RunID, Operation: run.Operation, Status: run.Status}
+			var packageVersion string
+			if run.Operation == "install" || run.Operation == "update" {
+				var request struct {
+					Version string `json:"version"`
+				}
+				if json.Unmarshal(run.Payload, &request) == nil {
+					packageVersion = request.Version
+				}
+			}
+			pending[id] = &pendingPackageOperation{RunID: run.RunID, Operation: run.Operation, Status: run.Status, Version: packageVersion, record: run}
 		}
 	}
 	items := a.pluginReg.List()
-	views := make([]pluginInstallationView, 0, len(items))
+	views := make([]pluginInstallationView, 0, len(items)+len(pending))
+	seen := make(map[string]struct{}, len(items))
 	for _, effective := range items {
+		seen[effective.ID] = struct{}{}
 		view := pluginInstallationView{ID: effective.ID, Name: effective.Name, EffectiveSource: effective.Source, EffectiveEnabled: effective.Enabled, Available: effective.Available}
 		if packagePlugin, ok := a.pluginReg.LookupSource(effective.ID, plugins.SourcePackage); ok {
 			view.PackagePresent = true
@@ -289,7 +404,19 @@ func (a *App) pluginInstallations(ctx context.Context) (pluginInstallationsRespo
 		view.PendingOperation = pending[effective.ID]
 		views = append(views, view)
 	}
-	return pluginInstallationsResponse{Catalog: plugins.DefaultCatalogStatus(), Items: views}, nil
+	pendingIDs := make([]string, 0, len(pending))
+	for id := range pending {
+		if _, exists := seen[id]; !exists {
+			pendingIDs = append(pendingIDs, id)
+		}
+	}
+	sort.Strings(pendingIDs)
+	for _, id := range pendingIDs {
+		views = append(views, pluginInstallationView{ID: id, PendingOperation: pending[id]})
+	}
+	sort.Slice(views, func(i, j int) bool { return views[i].ID < views[j].ID })
+	_, catalogStatus := a.currentPluginCatalog(ctx)
+	return pluginInstallationsResponse{Catalog: catalogStatus, Items: views}, nil
 }
 
 func (a *App) pluginInstallation(ctx context.Context, id string) (pluginInstallationView, error) {
@@ -303,6 +430,88 @@ func (a *App) pluginInstallation(ctx context.Context, id string) (pluginInstalla
 		}
 	}
 	return pluginInstallationView{}, errPluginInstallationNotFound
+}
+
+func (a *App) executePackageInstall(ctx context.Context, job plugins.JobRecord) (string, error) {
+	if a == nil || ctx == nil {
+		return "", errors.New("package install context is unavailable")
+	}
+	if job.Operation != "install" && job.Operation != "update" {
+		return "", errors.New("unsupported package install operation")
+	}
+	pluginID := job.PluginID
+	if pluginID == "" {
+		pluginID = job.JobID
+	}
+	if !pluginAPIID.MatchString(pluginID) || pluginID == "rclone" {
+		return "", errors.New("invalid package plugin id")
+	}
+	var request struct {
+		Version   string `json:"version"`
+		Confirmed *bool  `json:"confirmed"`
+	}
+	if err := json.Unmarshal(job.Payload, &request); err != nil || strings.TrimSpace(request.Version) == "" || request.Confirmed == nil || !*request.Confirmed {
+		return "", errors.New("invalid package install request")
+	}
+	a.pluginOperationMu.Lock()
+	defer a.pluginOperationMu.Unlock()
+	catalog, status := a.currentPluginCatalog(ctx)
+	if status.ReadOnly || !catalog.Verified() {
+		return "", errors.New("signed plugin catalog is unavailable")
+	}
+	if a.packageInstallExecutor == nil {
+		return "", errors.New("package installation is unavailable on this platform")
+	}
+	format, supported := a.packageInstallExecutor.InstallFormat()
+	if !supported || format == "" || !a.packageInstallExecutor.CanInstall() {
+		return "", errors.New("package installation is unavailable on this platform")
+	}
+	var catalogVersion string
+	for _, entry := range catalog.Plugins {
+		if entry.ID == pluginID {
+			catalogVersion = entry.Version
+			break
+		}
+	}
+	if catalogVersion == "" || catalogVersion != request.Version {
+		return "", errors.New("requested package version is not present in the signed catalog")
+	}
+	asset, err := catalog.SelectAsset(pluginID, format, version.Version, runtime.GOARCH)
+	if err != nil || asset.Version != request.Version {
+		return "", errors.New("verified package asset is unavailable for this platform and version")
+	}
+	packagePlugin, packagePresent := a.pluginReg.LookupSource(pluginID, plugins.SourcePackage)
+	if packagePresent && packagePlugin.Version == request.Version {
+		return "package already at requested version", nil
+	}
+	if job.Operation == "install" && packagePresent {
+		return "", errors.New("package already exists; update operation is required")
+	}
+	if job.Operation == "update" && !packagePresent {
+		return "", errors.New("package is not installed")
+	}
+	wasEnabled := packagePresent && packagePlugin.Enabled
+	if err := a.jobManager.DisablePlugin(ctx, pluginID); err != nil {
+		return "", fmt.Errorf("stop plugin jobs before package install: %w", err)
+	}
+	if err := a.packageInstallExecutor.InstallCatalogPackage(ctx, pluginID, asset); err != nil {
+		installErr := fmt.Errorf("install verified package: %w", err)
+		if wasEnabled {
+			if disableErr := a.pluginReg.SetSourceEnabledAs("system", pluginID, plugins.SourcePackage, false); disableErr != nil {
+				installErr = errors.Join(installErr, fmt.Errorf("persist disabled package state after failed update: %w", disableErr))
+			} else {
+				installErr = fmt.Errorf("%w; package disabled after failed update", installErr)
+			}
+		}
+		return "", installErr
+	}
+	if err := a.pluginReg.ReloadPackages(); err != nil {
+		return "package installed but plugin registry refresh failed", fmt.Errorf("refresh package registry: %w", err)
+	}
+	if wasEnabled {
+		a.jobManager.EnablePlugin(pluginID)
+	}
+	return fmt.Sprintf("package %s at version %s", job.Operation, request.Version), nil
 }
 
 func (a *App) hasActivePluginJob(ctx context.Context, pluginID string) (bool, error) {
@@ -327,6 +536,17 @@ func packageRemovalRequest(actor, id, idempotencyKey string, confirmed *bool) pl
 		payload = json.RawMessage(`{"confirmed_legacy_fallback":true}`)
 	}
 	return plugins.JobRequest{ActorID: actor, Kind: "package", PluginID: id, JobID: id, Operation: "remove", Payload: payload, IdempotencyKey: idempotencyKey}
+}
+
+func packageInstallRequest(actor, id, operation, packageVersion, idempotencyKey string) (plugins.JobRequest, error) {
+	payload, err := json.Marshal(struct {
+		Version   string `json:"version"`
+		Confirmed bool   `json:"confirmed"`
+	}{Version: packageVersion, Confirmed: true})
+	if err != nil {
+		return plugins.JobRequest{}, fmt.Errorf("encode package installation request: %w", err)
+	}
+	return plugins.JobRequest{ActorID: actor, Kind: "package", PluginID: id, JobID: id, Operation: operation, Payload: payload, IdempotencyKey: idempotencyKey}, nil
 }
 
 func validPluginIdempotencyKey(r *http.Request) bool {

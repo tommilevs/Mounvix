@@ -16,17 +16,20 @@ BIN="$ROOT/dist/server/linux_${GOARCH}/mounvix-server"
 W="$(mktemp -d)"
 trap 'rm -rf "$W"' EXIT
 
-mkdir -p "$W/DEBIAN" "$W/usr/bin" "$W/etc/mounvix" "$W/lib/systemd/system" "$W/var/lib/mounvix"
+mkdir -p "$W/DEBIAN" "$W/usr/bin" "$W/etc/mounvix" "$W/lib/systemd/system" "$W/usr/share/doc/mounvix-server" "$W/var/lib/mounvix"
 cp "$BIN" "$W/usr/bin/mounvix-server"
 chmod 755 "$W/usr/bin/mounvix-server"
 printf '{"port":48100,"data_dir":"/var/lib/mounvix"}\n' > "$W/etc/mounvix/config.json"
 cp "$ROOT/packaging/systemd/mounvix.service" "$W/lib/systemd/system/mounvix.service"
+cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$W/usr/share/doc/mounvix-server/"
+chmod 644 "$W/usr/share/doc/mounvix-server/LICENSE" "$W/usr/share/doc/mounvix-server/NOTICE"
 
 cat > "$W/DEBIAN/control" <<EOF
 Package: mounvix-server
 Version: ${VERSION}
 Section: utils
 Priority: optional
+License: AGPL-3.0-only
 Architecture: ${D}
 Maintainer: tommilevs <tommilevs@gmail.com>
 Description: Mounvix NAS server - lightweight NAS web UI and WebDAV

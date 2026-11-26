@@ -294,3 +294,52 @@ func TestBadTargetReportsError(t *testing.T) {
 		t.Fatalf("expected unknown target error, got %v", rep.Errors)
 	}
 }
+
+func TestRunSkipsAdminBootstrapPassword(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	secretPath := filepath.Join(dataDir, "admin-bootstrap-password")
+	if err := os.WriteFile(secretPath, []byte("test-bootstrap-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ordinaryPath := filepath.Join(root, "notes.txt")
+	if err := os.WriteFile(ordinaryPath, []byte("keep this file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "backup")
+	manager, err := New(dataDir, secretPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := manager.Create("safe", root, []Target{{Type: "local", Path: destination}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Run(context.Background(), job.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "data", "admin-bootstrap-password")); !os.IsNotExist(err) {
+		t.Fatalf("backup contains bootstrap password, stat error=%v", err)
+	}
+	if contents, err := os.ReadFile(filepath.Join(destination, "notes.txt")); err != nil || string(contents) != "keep this file" {
+		t.Fatalf("ordinary source file was not backed up: contents=%q err=%v", contents, err)
+	}
+
+	legacySecret := filepath.Join(destination, "legacy", "admin-bootstrap-password")
+	if err := os.MkdirAll(filepath.Dir(legacySecret), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacySecret, []byte("stale-bootstrap-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restoreDir := filepath.Join(t.TempDir(), "restored")
+	if _, err := manager.Restore(context.Background(), job.ID, restoreDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(restoreDir, "legacy", "admin-bootstrap-password")); !os.IsNotExist(err) {
+		t.Fatalf("restore reintroduced bootstrap password, stat error=%v", err)
+	}
+}

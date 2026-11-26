@@ -1,0 +1,113 @@
+name: sign-plugin-catalog
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - plugins/index.json
+  workflow_dispatch:
+    inputs:
+      key_id:
+        description: Pinned Ed25519 key used for the detached catalog signature
+        required: true
+        type: choice
+        options:
+          - mounvix-catalog-2026-current
+          - mounvix-catalog-2026-next
+        default: mounvix-catalog-2026-current
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mounvix-catalog-signing
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache-dependency-path: server/go.sum
+
+      - name: Sign and verify the exact catalog bytes
+        working-directory: server
+        env:
+          CATALOG_KEY_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.key_id || 'mounvix-catalog-2026-current' }}
+          CURRENT_PRIVATE_KEY_PEM: ${{ secrets.MOUNVIX_CATALOG_CURRENT_PRIVATE_KEY_PEM }}
+          NEXT_PRIVATE_KEY_PEM: ${{ secrets.MOUNVIX_CATALOG_NEXT_PRIVATE_KEY_PEM }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${CURRENT_PRIVATE_KEY_PEM:?MOUNVIX_CATALOG_CURRENT_PRIVATE_KEY_PEM secret is required}"
+          : "${NEXT_PRIVATE_KEY_PEM:?MOUNVIX_CATALOG_NEXT_PRIVATE_KEY_PEM secret is required}"
+          case "$CATALOG_KEY_ID" in
+            mounvix-catalog-2026-current) selected_key='current' ;;
+            mounvix-catalog-2026-next) selected_key='next' ;;
+            *) echo 'Refusing to sign with an unrecognized catalog key ID' >&2; exit 1 ;;
+          esac
+
+          umask 077
+          current_key_file="$(mktemp "$RUNNER_TEMP/mounvix-catalog-current.XXXXXX")"
+          next_key_file="$(mktemp "$RUNNER_TEMP/mounvix-catalog-next.XXXXXX")"
+          current_signature_file="$(mktemp "$RUNNER_TEMP/mounvix-catalog-current-signature.XXXXXX")"
+          next_signature_file="$(mktemp "$RUNNER_TEMP/mounvix-catalog-next-signature.XXXXXX")"
+          cleanup() {
+            rm -f "$current_key_file" "$next_key_file" "$current_signature_file" "$next_signature_file"
+            unset CURRENT_PRIVATE_KEY_PEM NEXT_PRIVATE_KEY_PEM
+          }
+          trap cleanup EXIT
+          printf '%s' "$CURRENT_PRIVATE_KEY_PEM" > "$current_key_file"
+          printf '%s' "$NEXT_PRIVATE_KEY_PEM" > "$next_key_file"
+          test -s "$current_key_file" && test -s "$next_key_file"
+
+          go run ./cmd/sign-plugin-catalog \
+            --key-id mounvix-catalog-2026-current \
+            --key-file "$current_key_file" \
+            --index ../plugins/index.json \
+            --signature "$current_signature_file"
+          go run ./cmd/sign-plugin-catalog \
+            --verify \
+            --index ../plugins/index.json \
+            --signature "$current_signature_file"
+          go run ./cmd/sign-plugin-catalog \
+            --key-id mounvix-catalog-2026-next \
+            --key-file "$next_key_file" \
+            --index ../plugins/index.json \
+            --signature "$next_signature_file"
+          go run ./cmd/sign-plugin-catalog \
+            --verify \
+            --index ../plugins/index.json \
+            --signature "$next_signature_file"
+
+          if [[ "$selected_key" == 'current' ]]; then selected_key_file="$current_key_file"; else selected_key_file="$next_key_file"; fi
+          go run ./cmd/sign-plugin-catalog \
+            --key-id "$CATALOG_KEY_ID" \
+            --key-file "$selected_key_file" \
+            --index ../plugins/index.json \
+            --signature ../plugins/index.json.sig
+          go run ./cmd/sign-plugin-catalog \
+            --verify \
+            --index ../plugins/index.json \
+            --signature ../plugins/index.json.sig
+
+      - name: Commit signature only when it changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- plugins/index.json.sig; then
+            echo 'Catalog signature is already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- plugins/index.json.sig
+          git commit -m 'chore: sign plugin catalog'
+          git push origin HEAD:refs/heads/main

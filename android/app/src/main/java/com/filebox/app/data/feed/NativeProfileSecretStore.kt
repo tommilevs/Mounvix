@@ -46,7 +46,6 @@ class NativeProfileSecretStore internal constructor(
 
     override fun write(profileKey: String, plaintext: String): Result<Unit> = capture {
         require(profileKey.isNotBlank()) { "profile key is required" }
-        require(plaintext.isNotBlank()) { "profile secret is required" }
         ensureDirectory()
 
         val keyBytes = profileKey.toByteArray(StandardCharsets.UTF_8)

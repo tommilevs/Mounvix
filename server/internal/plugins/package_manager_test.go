@@ -65,11 +65,35 @@ func TestProductionInstallerBlocksInstallButAllowsValidatedRemovalWithoutRelease
 	}
 }
 
+func TestPackageInstallerInstallGateTracksCatalogVerification(t *testing.T) {
+	runner := &recordingCommandRunner{}
+	metadata := fixedMetadataReader{metadata: PackageMetadata{Package: "demo", Version: "1.0.0", Architecture: "aarch64", PluginID: "demo", PluginVersion: "1.0.0"}}
+	installer := newPackageInstaller("/opt/etc/mounvix/config.json", runner, metadata)
+	artifact := makeTestVerifiedArtifact(t, "ipk", "demo", "1.0.0", "aarch64")
+	installer.SetCatalogVerified(false)
+	if installer.CanInstall() {
+		t.Fatal("installation remained enabled after catalog verification was removed")
+	}
+	if err := installer.Install(context.Background(), "demo", artifact); err == nil {
+		t.Fatal("installation succeeded while the catalog was read-only")
+	}
+	installer.SetCatalogVerified(true)
+	if !installer.CanInstall() {
+		t.Fatal("installation did not become available after catalog verification")
+	}
+	if err := installer.Install(context.Background(), "demo", artifact); err != nil {
+		t.Fatalf("Install() after signed catalog verification: %v", err)
+	}
+	if len(runner.calls) != 1 || runner.calls[0].program != "/opt/bin/opkg" {
+		t.Fatalf("expected one fixed package-manager install, got %+v", runner.calls)
+	}
+}
+
 func TestPackageInstallerAllowsValidatedRemovalWhenCatalogIsReadOnly(t *testing.T) {
 	runner := &recordingCommandRunner{}
 	metadata := fixedMetadataReader{}
 	installer := newPackageInstaller("/opt/etc/mounvix/config.json", runner, metadata)
-	installer.mutationsEnabled = false
+	installer.SetCatalogVerified(false)
 	if err := installer.Remove(context.Background(), "demo"); err != nil {
 		t.Fatalf("Remove() while catalog is read-only: %v", err)
 	}

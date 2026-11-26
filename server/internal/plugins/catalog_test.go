@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -298,11 +299,150 @@ func TestCatalogVerificationReadyRequiresDistinctCurrentAndNextKeys(t *testing.T
 	}
 }
 
-func TestProductionCatalogStatusIsReadOnlyUntilBothKeysExist(t *testing.T) {
+func TestProductionCatalogKeysMatchPinnedFingerprints(t *testing.T) {
+	keys := ProductionCatalogKeys()
+	if len(keys) != 2 || !CatalogVerificationReady(keys) {
+		t.Fatalf("production current/next keys are not ready: %+v", keys)
+	}
+	want := []struct {
+		id          string
+		role        string
+		fingerprint string
+	}{
+		{CatalogCurrentKeyID, "current", catalogCurrentFingerprint},
+		{CatalogNextKeyID, "next", catalogNextFingerprint},
+	}
+	for i, expected := range want {
+		if keys[i].ID != expected.id || keys[i].Role != expected.role {
+			t.Fatalf("production key %d identity=%+v", i, keys[i])
+		}
+		fingerprint := sha256.Sum256(keys[i].PublicKey)
+		if got := hex.EncodeToString(fingerprint[:]); got != expected.fingerprint {
+			t.Fatalf("production key %q fingerprint=%s, want %s", keys[i].ID, got, expected.fingerprint)
+		}
+	}
+}
+
+func TestProductionCatalogStatusRemainsReadOnlyUntilVerifiedFetch(t *testing.T) {
 	if CatalogVerificationReady(nil) {
 		t.Fatal("empty production key set reported ready")
 	}
 	if status := DefaultCatalogStatus(); !status.ReadOnly || status.IndexURL != CatalogIndexURL {
-		t.Fatalf("catalog should remain read-only without configured release keys: %+v", status)
+		t.Fatalf("catalog should remain read-only before a verified fetch: %+v", status)
+	}
+}
+
+func TestSignCatalogUsesTheExactBytesAndOnlyPinnedPrivateKeys(t *testing.T) {
+	current, currentPrivate := catalogTestKeys(t)
+	next, _ := catalogTestKeys(t)
+	next.ID = "test-next"
+	next.Role = "next"
+	keys := []CatalogKey{current, next}
+	index := []byte("{ \n  \"plugins\" : [ ]\n}\n")
+	signature, err := SignCatalog(index, current.ID, currentPrivate, keys)
+	if err != nil {
+		t.Fatalf("SignCatalog(): %v", err)
+	}
+	catalog, err := VerifyCatalog(index, signature, keys)
+	if err != nil || !catalog.Verified() || catalog.SignerKeyID != current.ID {
+		t.Fatalf("signed catalog verified=%v signer=%q err=%v", catalog.Verified(), catalog.SignerKeyID, err)
+	}
+	tampered := append([]byte(nil), index...)
+	tampered[0] = 'x'
+	if _, err := VerifyCatalog(tampered, signature, keys); err == nil {
+		t.Fatal("signature accepted bytes different from the exact signed index")
+	}
+	_, wrongPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SignCatalog(index, current.ID, wrongPrivate, keys); err == nil {
+		t.Fatal("signing with a private key not matching the pinned key ID succeeded")
+	}
+	if _, err := SignCatalog(index, "unknown-key", currentPrivate, keys); err == nil {
+		t.Fatal("signing with an unknown key ID succeeded")
+	}
+}
+
+func TestCatalogFetcherVerifiesPinnedRawDocuments(t *testing.T) {
+	current, currentPrivate := catalogTestKeys(t)
+	next, _ := catalogTestKeys(t)
+	next.ID = "test-next"
+	next.Role = "next"
+	index := []byte("{\"plugins\":[]}\n")
+	signature := signCatalogForTest(t, current.ID, currentPrivate, index)
+	requests := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodGet {
+			t.Errorf("unexpected method %q", r.Method)
+		}
+		switch r.URL.Path {
+		case "/plugins/index.json":
+			_, _ = w.Write(index)
+		case "/plugins/index.json.sig":
+			_, _ = w.Write(signature)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	fetcher := newCatalogFetcher(server.Client(), server.URL+"/plugins/index.json", server.URL+"/plugins/index.json.sig", []CatalogKey{current, next})
+	catalog, err := fetcher.Fetch(context.Background())
+	if err != nil {
+		t.Fatalf("Fetch(): %v", err)
+	}
+	if !catalog.verified || catalog.SignerKeyID != current.ID || len(catalog.Plugins) != 0 {
+		t.Fatalf("unexpected verified catalog: %+v", catalog)
+	}
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := fetcher.Fetch(canceledCtx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Fetch with a canceled context returned %v, want context.Canceled", err)
+	}
+	cached, err := fetcher.Fetch(context.Background())
+	if err != nil || !cached.Verified() {
+		t.Fatalf("cached Fetch() verified=%v err=%v", cached.Verified(), err)
+	}
+	if requests != 2 {
+		t.Fatalf("expected one index/signature request pair while the verified cache is fresh, got %d requests", requests)
+	}
+}
+
+func TestCatalogFetcherRejectsRedirectsAndOversizedDocuments(t *testing.T) {
+	current, _ := catalogTestKeys(t)
+	next, _ := catalogTestKeys(t)
+	next.ID = "test-next"
+	next.Role = "next"
+	for _, test := range []struct {
+		name      string
+		body      []byte
+		status    int
+		wantError string
+	}{
+		{name: "redirect", status: http.StatusFound, wantError: "HTTP 302"},
+		{name: "oversized index", body: bytes.Repeat([]byte("x"), maxCatalogIndexBytes+1), status: http.StatusOK, wantError: "size limit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			requests := 0
+			client := &http.Client{Transport: testRoundTripper(func(req *http.Request) (*http.Response, error) {
+				requests++
+				return &http.Response{
+					StatusCode:    test.status,
+					Header:        http.Header{"Location": []string{"https://attacker.example/index.json"}},
+					Body:          io.NopCloser(bytes.NewReader(test.body)),
+					ContentLength: int64(len(test.body)),
+					Request:       req,
+				}, nil
+			})}
+			fetcher := newCatalogFetcher(client, "https://catalog.example/plugins/index.json", "https://catalog.example/plugins/index.json.sig", []CatalogKey{current, next})
+			if _, err := fetcher.Fetch(context.Background()); err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("Fetch() error=%v, want containing %q", err, test.wantError)
+			}
+			if requests != 1 {
+				t.Fatalf("expected one request and no redirect or follow-up, got %d", requests)
+			}
+		})
 	}
 }

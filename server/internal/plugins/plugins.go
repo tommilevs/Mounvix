@@ -218,6 +218,38 @@ func (r *Registry) loadPackages() error {
 	}
 	return nil
 }
+
+// ReloadPackages refreshes installed package manifests without changing source-specific enabled state.
+func (r *Registry) ReloadPackages() error {
+	if r == nil {
+		return errors.New("plugin registry is required")
+	}
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	previous := r.sources[SourcePackage]
+	r.sources[SourcePackage] = map[string]*Plugin{}
+	if err := r.loadPackages(); err != nil {
+		r.sources[SourcePackage] = previous
+		return fmt.Errorf("reload package manifests: %w", err)
+	}
+	for id, plugin := range r.sources[SourcePackage] {
+		plugin.Source = SourcePackage
+		plugin.Enabled = r.packageEnabled[id]
+		if _, alreadyPresent := previous[id]; alreadyPresent {
+			continue
+		}
+		if _, legacyPresent := r.sources[SourceLegacy][id]; legacyPresent {
+			if err := r.audit.Append(AuditEvent{Actor: "system", Phase: "completed", Action: "manifest_conflict", PluginID: id, Source: SourcePackage, Outcome: "package manifest shadows legacy manifest"}); err != nil {
+				r.sources[SourcePackage] = previous
+				return fmt.Errorf("audit package manifest conflict: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
 func (r *Registry) loadBuiltin() {
 	p := &Plugin{ID: "rclone", Name: "rclone", Version: "builtin", Description: "Google Drive/облака через rclone", Kind: "rclone", Builtin: true, Source: SourceBuiltin}
 	if _, err := exec.LookPath("rclone"); err == nil {

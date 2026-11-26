@@ -40,7 +40,11 @@ class FeedViewModel @JvmOverloads constructor(
 
     /** Load retained feed history, preserving lifecycle cancellation. */
     fun load() {
-        if (loadJob?.isActive == true) return
+        val currentLoad = loadJob
+        if (currentLoad?.isActive == true) {
+            if (_uiState.value !is FeedUiState.Error) return
+            currentLoad.cancel()
+        }
         _uiState.value = FeedUiState.Loading
         loadJob = viewModelScope.launch(dispatcher) {
             try {

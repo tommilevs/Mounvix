@@ -7,6 +7,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -72,6 +73,32 @@ class FeedRepositoryTest {
         repository.saveProfile(profile.copy(username = "bob", password = "other-secret"))
 
         assertEquals(null, preferences.getString("feed_cursor", null))
+    }
+
+    @Test
+    fun clearingMatchingProfileDeletesOnlyItsSecretAndMemoriesCursor() {
+        repository.commitCursor("2026-11-03T12:34:56Z")
+        val profileKey = stableFeedProfileKey(normalizeMounvixBaseUrl(profile.baseUrl), profile.username)
+
+        val result = repository.clearProfile(profile)
+
+        assertTrue(result.isSuccess)
+        assertFalse(repository.hasStoredProfileIdentity())
+        assertEquals(null, preferences.getString("feed_cursor", null))
+        assertEquals(null, secretStore.read(profileKey).getOrNull())
+    }
+
+    @Test
+    fun clearingAnotherProfileDoesNotRemoveTheActiveProfile() {
+        repository.commitCursor("2026-11-03T12:34:56Z")
+        val activeKey = stableFeedProfileKey(normalizeMounvixBaseUrl(profile.baseUrl), profile.username)
+
+        val result = repository.clearProfile(profile.copy(username = "bob"))
+
+        assertTrue(result.isFailure)
+        assertTrue(repository.hasStoredProfileIdentity())
+        assertEquals("2026-11-03T12:34:56Z", preferences.getString("feed_cursor", null))
+        assertEquals("secret", secretStore.read(activeKey).getOrNull())
     }
 
     @Test

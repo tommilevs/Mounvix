@@ -49,6 +49,14 @@ class NativeProfileSecretStoreTest {
     }
 
     @Test
+    fun emptySecretCanBeEncryptedAndReadBack() {
+        val store = NativeProfileSecretStore(temporaryFolder.newFolder("empty-secret"), EmptyAwareCipher())
+
+        assertTrue(store.write("profile-key", "").isSuccess)
+        assertEquals("", store.read("profile-key").getOrThrow())
+    }
+
+    @Test
     fun blankProfileKeyIsRejected() {
         val store = NativeProfileSecretStore(temporaryFolder.newFolder("blank"), TestCipher())
 
@@ -71,5 +79,12 @@ class NativeProfileSecretStoreTest {
             if (!secret.iv.contentEquals(byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))) error("invalid IV")
             return secret.ciphertext.mapIndexed { index, byte -> (byte.toInt() xor marker[index % marker.size].toInt()).toByte() }.toByteArray()
         }
+    }
+
+    private class EmptyAwareCipher : ProfileSecretCipher {
+        override fun encrypt(plaintext: ByteArray, associatedData: ByteArray) =
+            EncryptedProfileSecret(byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), byteArrayOf(1))
+
+        override fun decrypt(secret: EncryptedProfileSecret, associatedData: ByteArray) = byteArrayOf()
     }
 }

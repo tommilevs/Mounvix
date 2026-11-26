@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tommilevs/Mounvix/server/internal/app"
+	"github.com/tommilevs/Mounvix/server/internal/plugins"
 	"github.com/tommilevs/Mounvix/server/internal/version"
 )
 
@@ -36,6 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("app: %v", err)
 	}
+	a.SetCatalogSource(plugins.NewProductionCatalogFetcher())
 	if *addr == "" {
 		*addr = fmt.Sprintf(":%d", cfg.Port)
 	}

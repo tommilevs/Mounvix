@@ -98,6 +98,33 @@ class FeedRepository(
     /** True when identity is present but no verified profile secret can be loaded. */
     fun hasStoredProfileIdentity(): Boolean = readStoredIdentity() != null
 
+    /** Remove only the matching profile, encrypted secret, and its Memories cursor. */
+    fun clearProfile(profile: FeedProfile): Result<Unit> = try {
+        val normalizedUrl = normalizeMounvixBaseUrl(profile.baseUrl)
+        val normalizedUsername = profile.username.trim()
+        val identity = readStoredIdentity() ?: throw IllegalStateException("no Mounvix profile is configured")
+        check(identity.baseUrl == normalizedUrl && identity.username == normalizedUsername) {
+            "profile does not match the configured Mounvix identity"
+        }
+        val key = stableFeedProfileKey(normalizedUrl, normalizedUsername)
+        val previousSecret = secretStore.read(key).getOrThrow()
+        secretStore.delete(key).getOrThrow()
+        val removed = preferences.edit()
+            .remove(KEY_PROFILE_URL)
+            .remove(KEY_PROFILE_USERNAME)
+            .remove(KEY_PROFILE_PASSWORD)
+            .remove(KEY_CURSOR)
+            .commit()
+        if (!removed) {
+            if (!previousSecret.isNullOrBlank()) secretStore.write(key, previousSecret).getOrThrow()
+            throw IllegalStateException("could not persist Mounvix profile removal")
+        }
+        api.setActiveProfile(null)
+        Result.success(Unit)
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
     /** Fetch items newer than the committed sync cursor without changing that cursor. */
     suspend fun fetchNewSinceCursor(): FeedPage {
         requireProfile()

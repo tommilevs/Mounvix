@@ -3,12 +3,18 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +84,358 @@ func TestPluginCatalogAPIRequiresAdminAndIsNoStore(t *testing.T) {
 				t.Fatalf("response keys=%v", keys)
 			}
 		})
+	}
+}
+
+type fixedPluginCatalogSource struct {
+	catalog plugins.Catalog
+	err     error
+}
+
+func (source fixedPluginCatalogSource) Fetch(context.Context) (plugins.Catalog, error) {
+	return source.catalog, source.err
+}
+
+func makeVerifiedCatalogForAPITest(t *testing.T) plugins.Catalog {
+	t.Helper()
+	currentPublic, currentPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := []plugins.CatalogKey{
+		{ID: "api-current", PublicKey: currentPublic, Role: "current"},
+		{ID: "api-next", PublicKey: nextPublic, Role: "next"},
+	}
+	index, err := json.Marshal(struct {
+		Plugins []plugins.CatalogEntry `json:"plugins"`
+	}{Plugins: []plugins.CatalogEntry{{
+		ID: "demo", Name: "Demo", Version: "1.0.0", Arch: []string{runtime.GOARCH},
+		Assets: map[string]plugins.CatalogAsset{"ipk": {
+			URL:  "https://raw.githubusercontent.com/tommilevs/Mounvix/main/plugins/demo/1.0.0/demo.ipk",
+			Size: 1, SHA256: strings.Repeat("a", 64), Arch: runtime.GOARCH,
+		}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := json.Marshal(map[string]string{
+		"key_id": "api-current", "signature": base64.StdEncoding.EncodeToString(ed25519.Sign(currentPrivate, index)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := plugins.VerifyCatalog(index, envelope, keys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return catalog
+}
+
+func TestPluginCatalogAPIExposesOnlyVerifiedCatalog(t *testing.T) {
+	a, _ := newTestApp(t)
+	defer a.Close()
+	a.catalogSource = fixedPluginCatalogSource{catalog: makeVerifiedCatalogForAPITest(t)}
+	admin := a.store.CreateSession("admin")
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/api/v1/plugin-catalog", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: admin})
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Catalog struct {
+			ReadOnly bool   `json:"read_only"`
+			KeyID    string `json:"key_id"`
+		} `json:"catalog"`
+		Plugins []plugins.CatalogEntry `json:"plugins"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Catalog.ReadOnly || body.Catalog.KeyID != "api-current" || len(body.Plugins) != 1 || body.Plugins[0].ID != "demo" {
+		t.Fatalf("verified catalog not exposed: %+v", body)
+	}
+}
+
+type catalogPackageInstallCall struct {
+	id    string
+	asset plugins.CatalogAsset
+}
+
+type recordingCatalogPackageInstaller struct {
+	calls chan catalogPackageInstallCall
+}
+
+func (installer recordingCatalogPackageInstaller) CanInstall() bool { return true }
+
+func (installer recordingCatalogPackageInstaller) InstallFormat() (string, bool) {
+	return "ipk", true
+}
+
+func (installer recordingCatalogPackageInstaller) InstallCatalogPackage(ctx context.Context, id string, asset plugins.CatalogAsset) error {
+	select {
+	case installer.calls <- catalogPackageInstallCall{id: id, asset: asset}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestPackageInstallAPIRejectsUnverifiedCatalogContents(t *testing.T) {
+	a, _ := newTestApp(t)
+	defer a.Close()
+	a.catalogSource = fixedPluginCatalogSource{catalog: plugins.Catalog{Plugins: []plugins.CatalogEntry{{ID: "demo", Name: "Demo", Version: "1.0.0"}}}}
+	installer := recordingCatalogPackageInstaller{calls: make(chan catalogPackageInstallCall, 1)}
+	a.packageInstallExecutor = installer
+	admin := a.store.CreateSession("admin")
+	req := httptest.NewRequest(http.MethodPut, "http://example.test/api/v1/plugin-installations/demo", bytes.NewBufferString(`{"version":"1.0.0","confirmed":true}`))
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: admin})
+	req.Header.Set("Origin", "http://example.test")
+	req.Header.Set("Idempotency-Key", "unverified-catalog-install")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict || !bytes.Contains(rec.Body.Bytes(), []byte("catalog_read_only")) {
+		t.Fatalf("unverified catalog install status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	select {
+	case call := <-installer.calls:
+		t.Fatalf("unverified catalog reached package manager: %+v", call)
+	default:
+	}
+	page, err := a.jobStore.ListAfter(context.Background(), 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, job := range page.Items {
+		if job.Kind == "package" && job.PluginID == "demo" {
+			t.Fatalf("unverified catalog created an install job: %+v", job)
+		}
+	}
+}
+
+func TestPackageInstallAPIQueuesExactVerifiedCatalogVersionAndDeduplicates(t *testing.T) {
+	a, _ := newTestApp(t)
+	defer a.Close()
+	a.catalogSource = fixedPluginCatalogSource{catalog: makeVerifiedCatalogForAPITest(t)}
+	installer := recordingCatalogPackageInstaller{calls: make(chan catalogPackageInstallCall, 1)}
+	a.packageInstallExecutor = installer
+	admin := a.store.CreateSession("admin")
+	call := func(version, key string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "http://example.test/api/v1/plugin-installations/demo", bytes.NewBufferString(`{"version":"`+version+`","confirmed":true}`))
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: admin})
+		req.Header.Set("Origin", "http://example.test")
+		req.Header.Set("Idempotency-Key", key)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		a.ServeHTTP(rec, req)
+		return rec
+	}
+	first := call("1.0.0", "install-demo-1")
+	second := call("1.0.0", "install-demo-1")
+	if first.Code != http.StatusAccepted || second.Code != http.StatusAccepted {
+		t.Fatalf("install status=%d/%d body=%s/%s", first.Code, second.Code, first.Body.String(), second.Body.String())
+	}
+	var firstBody, secondBody struct {
+		Job plugins.JobRecord `json:"job"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &firstBody); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &secondBody); err != nil {
+		t.Fatal(err)
+	}
+	if firstBody.Job.RunID == "" || secondBody.Job.RunID != firstBody.Job.RunID {
+		t.Fatalf("install job ids=%q/%q", firstBody.Job.RunID, secondBody.Job.RunID)
+	}
+	select {
+	case installed := <-installer.calls:
+		if installed.id != "demo" || installed.asset.ID != "demo" || installed.asset.Version != "1.0.0" || installed.asset.Format != "ipk" {
+			t.Fatalf("installer received unverified or wrong catalog asset: %+v", installed)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("queued package job did not reach installer")
+	}
+	changed := call("2.0.0", "install-demo-1")
+	if changed.Code != http.StatusConflict || !bytes.Contains(changed.Body.Bytes(), []byte("idempotency_conflict")) {
+		t.Fatalf("reused key with changed request status=%d body=%s", changed.Code, changed.Body.String())
+	}
+	unlisted := call("2.0.0", "install-demo-2")
+	if unlisted.Code != http.StatusConflict || !bytes.Contains(unlisted.Body.Bytes(), []byte("catalog_version_unavailable")) {
+		t.Fatalf("unlisted version status=%d body=%s", unlisted.Code, unlisted.Body.String())
+	}
+}
+
+type blockingCatalogPackageInstaller struct {
+	started chan struct{}
+	release <-chan struct{}
+}
+
+func (installer blockingCatalogPackageInstaller) CanInstall() bool { return true }
+
+func (installer blockingCatalogPackageInstaller) InstallFormat() (string, bool) {
+	return "ipk", true
+}
+
+func (installer blockingCatalogPackageInstaller) InstallCatalogPackage(ctx context.Context, _ string, _ plugins.CatalogAsset) error {
+	select {
+	case installer.started <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-installer.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestPackageInstallAPIReusesPendingRunForSameVersion(t *testing.T) {
+	a, _ := newTestApp(t)
+	defer a.Close()
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	a.catalogSource = fixedPluginCatalogSource{catalog: makeVerifiedCatalogForAPITest(t)}
+	installer := blockingCatalogPackageInstaller{started: make(chan struct{}, 1), release: release}
+	a.packageInstallExecutor = installer
+	admin := a.store.CreateSession("admin")
+	call := func(version, key string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "http://example.test/api/v1/plugin-installations/demo", bytes.NewBufferString(`{"version":"`+version+`","confirmed":true}`))
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: admin})
+		req.Header.Set("Origin", "http://example.test")
+		req.Header.Set("Idempotency-Key", key)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		a.ServeHTTP(rec, req)
+		return rec
+	}
+	first := call("1.0.0", "install-pending-1")
+	if first.Code != http.StatusAccepted {
+		t.Fatalf("first install status=%d body=%s", first.Code, first.Body.String())
+	}
+	var firstBody struct {
+		Job plugins.JobRecord `json:"job"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &firstBody); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-installer.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("package install did not start")
+	}
+	retry := call("1.0.0", "install-pending-2")
+	if retry.Code != http.StatusAccepted {
+		t.Fatalf("same-version pending retry status=%d body=%s", retry.Code, retry.Body.String())
+	}
+	var retryBody struct {
+		Job plugins.JobRecord `json:"job"`
+	}
+	if err := json.Unmarshal(retry.Body.Bytes(), &retryBody); err != nil {
+		t.Fatal(err)
+	}
+	if retryBody.Job.RunID != firstBody.Job.RunID {
+		t.Fatalf("same-version retry returned different jobs: %q != %q", retryBody.Job.RunID, firstBody.Job.RunID)
+	}
+	different := call("2.0.0", "install-pending-3")
+	if different.Code != http.StatusConflict || !bytes.Contains(different.Body.Bytes(), []byte("package_busy")) {
+		t.Fatalf("different version during pending install status=%d body=%s", different.Code, different.Body.String())
+	}
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		page, err := a.jobStore.ListAfter(context.Background(), 0, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		finished := false
+		for _, run := range page.Items {
+			if run.RunID == firstBody.Job.RunID {
+				if run.Status == plugins.JobStatusFailed {
+					t.Fatalf("package install failed: %s", run.Summary)
+				}
+				finished = run.Status == plugins.JobStatusSucceeded
+			}
+		}
+		if finished {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("package install did not finish")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+type failingCatalogPackageInstaller struct{}
+
+func (failingCatalogPackageInstaller) CanInstall() bool { return true }
+
+func (failingCatalogPackageInstaller) InstallFormat() (string, bool) {
+	return "ipk", true
+}
+
+func (failingCatalogPackageInstaller) InstallCatalogPackage(context.Context, string, plugins.CatalogAsset) error {
+	return errors.New("simulated package-manager failure")
+}
+
+func TestFailedPackageUpdatePersistsDisabledState(t *testing.T) {
+	a, _ := newTestApp(t)
+	defer a.Close()
+	cfg := a.configSnapshot()
+	pluginRoot := pluginDirForConfig(cfg, a.cfgPath, cfg.DataDir)
+	packageDir := filepath.Join(pluginRoot, "demo")
+	binaryPath := filepath.Join(packageDir, "bin", "demo")
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"id":"demo","name":"Demo","version":"0.9.0","api":1,"author":"test","description":"test","executable":"bin/demo"}`
+	if err := os.WriteFile(filepath.Join(packageDir, "plugin.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(binaryPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.pluginReg.ReloadPackages(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.pluginReg.SetSourceEnabled("demo", plugins.SourcePackage, true); err != nil {
+		t.Fatalf("enable package before failed update: %v", err)
+	}
+	a.catalogSource = fixedPluginCatalogSource{catalog: makeVerifiedCatalogForAPITest(t)}
+	a.packageInstallExecutor = failingCatalogPackageInstaller{}
+	job := plugins.JobRecord{
+		Kind:      "package",
+		PluginID:  "demo",
+		JobID:     "demo",
+		Operation: "update",
+		Payload:   json.RawMessage(`{"version":"1.0.0","confirmed":true}`),
+	}
+	if _, err := a.executePackageInstall(context.Background(), job); err == nil {
+		t.Fatal("expected package-manager failure")
+	}
+	packagePlugin, found := a.pluginReg.LookupSource("demo", plugins.SourcePackage)
+	if !found || packagePlugin.Enabled {
+		t.Fatalf("failed update left package enabled: found=%v plugin=%+v", found, packagePlugin)
+	}
+	_, enqueueErr := a.jobManager.Enqueue(context.Background(), plugins.JobRequest{ActorID: "admin", Kind: "plugin", PluginID: "demo", JobID: "run", Operation: "run", Payload: json.RawMessage(`{}`)})
+	if !errors.Is(enqueueErr, plugins.ErrPluginJobsDisabled) {
+		t.Fatalf("failed update left plugin jobs enabled: %v", enqueueErr)
 	}
 }
 

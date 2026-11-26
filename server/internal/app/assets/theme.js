@@ -90,12 +90,7 @@
       });
     }
 
-    sidebar.querySelectorAll("a[data-nav-link]").forEach((link) => {
-      link.addEventListener("click", () => {
-        if (isCompact()) setMenuOpen(false);
-      });
-    });
-
+    // Keep the anchor's default navigation intact; the destination page starts with the drawer closed.
     document.addEventListener("keydown", (event) => {
       const open = isCompact() && toggle.getAttribute("aria-expanded") === "true";
       if (!open) return;

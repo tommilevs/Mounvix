@@ -59,6 +59,10 @@ func (m *Manager) restoreDAVDir(ctx context.Context, client *http.Client, base *
 		return err
 	}
 	for _, e := range entries {
+		if m.isExcludedName(e.rel) {
+			rep.Skipped++
+			continue
+		}
 		if e.collection {
 			if err := m.restoreDAVDir(ctx, client, base, t, e.rel, dest, rep); err != nil {
 				rep.Errors = append(rep.Errors, e.rel+": "+err.Error())
@@ -70,7 +74,12 @@ func (m *Manager) restoreDAVDir(ctx context.Context, client *http.Client, base *
 			return ctx.Err()
 		default:
 		}
-		n, err := downloadDAV(ctx, client, base, t, e.rel, filepath.Join(dest, filepath.FromSlash(e.rel)))
+		targetPath := filepath.Join(dest, filepath.FromSlash(e.rel))
+		if m.isExcludedPath(targetPath) {
+			rep.Skipped++
+			continue
+		}
+		n, err := downloadDAV(ctx, client, base, t, e.rel, targetPath)
 		if err != nil {
 			rep.Errors = append(rep.Errors, e.rel+": "+err.Error())
 			continue

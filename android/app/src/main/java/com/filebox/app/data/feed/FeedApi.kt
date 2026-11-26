@@ -44,7 +44,7 @@ class FeedCookieJar : CookieJar {
 /** Cookie-aware client for the Mounvix session and memories endpoints. */
 class FeedApi(
     client: OkHttpClient = defaultClient(),
-) {
+) : ServerEventApi {
     /** Shared network client, configured not to forward credentials through redirects. */
     val client: OkHttpClient = client.newBuilder()
         .followRedirects(false)
@@ -136,8 +136,26 @@ class FeedApi(
         return response.body
     }
 
+    /** Read the public health version used to detect a server capability upgrade. */
+    override suspend fun getHealthVersion(): String? {
+        val profile = requireActiveProfile()
+        val request = Request.Builder()
+            .url(serverEndpoint(profile, "/health"))
+            .get()
+            .build()
+        val response = executeOnce(request)
+        response.requireSuccess("health check")
+        val json = try {
+            JSONObject(response.body.decodeToString())
+        } catch (error: Exception) {
+            throw IOException("invalid Mounvix health response", error)
+        }
+        if (!json.optBoolean("ok")) throw IOException("Mounvix health check was rejected")
+        return json.optString("version").takeIf { it.isNotBlank() }
+    }
+
     /** Fetch a bounded page from the independent M7 server-job notification inbox. */
-    suspend fun getServerNotifications(after: Long?, limit: Int = DEFAULT_NOTIFICATION_LIMIT): ServerNotificationsPage {
+    override suspend fun getServerNotifications(after: Long?, limit: Int): ServerNotificationsPage {
         require(limit in 1..MAX_LIMIT) { "limit must be between 1 and $MAX_LIMIT" }
         require(after == null || after >= 0) { "notification cursor must not be negative" }
 
@@ -176,7 +194,7 @@ class FeedApi(
         val profile = requireActiveProfile()
         login(profile).getOrElse { throw it }
         val retry = executeOnce(request)
-        if (retry.code == HTTP_UNAUTHORIZED) throw IOException("Mounvix session expired")
+        if (retry.code == HTTP_UNAUTHORIZED) throw MounvixHttpException(HTTP_UNAUTHORIZED, "Mounvix session expired (HTTP $HTTP_UNAUTHORIZED)")
         return retry
     }
 
@@ -335,7 +353,7 @@ class FeedApi(
     private fun HttpResult.requireSuccess(operation: String) {
         if (code !in 200..299) {
             val detail = body.decodeToString().take(MAX_ERROR_CHARS)
-            throw IOException("Mounvix $operation failed (HTTP $code)${if (detail.isBlank()) "" else ": $detail"}")
+            throw MounvixHttpException(code, "Mounvix $operation failed (HTTP $code)${if (detail.isBlank()) "" else ": $detail"}")
         }
     }
 

@@ -23,6 +23,7 @@ func newTestAppWithMount(t *testing.T, basePath, publicScheme string) *App {
 	}
 	cfg := DefaultConfig()
 	cfg.DataDir = root + "/data"
+	seedTestAdmin(t, cfg.DataDir)
 	cfg.Roots = []Root{{Name: "share", Path: share}}
 	cfg.PublicBasePath = basePath
 	cfg.PublicScheme = publicScheme
@@ -41,7 +42,7 @@ func newTestAppWithMount(t *testing.T, basePath, publicScheme string) *App {
 func TestMountedNotificationsRoutesAndLoginReturn(t *testing.T) {
 	a := newTestAppWithMount(t, "/mounvix", "https")
 	login := func(next string) *httptest.ResponseRecorder {
-		form := url.Values{"username": {"admin"}, "password": {"1234567890"}, "next": {next}}
+		form := url.Values{"username": {"admin"}, "password": {testAdminPassword}, "next": {next}}
 		req := httptest.NewRequest(http.MethodPost, "http://example.test/mounvix/login", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rec := httptest.NewRecorder()
@@ -78,7 +79,7 @@ func TestMountedNotificationsRoutesAndLoginReturn(t *testing.T) {
 			t.Errorf("unsafe login return %q redirected to %q", next, got)
 		}
 	}
-	apiLogin := httptest.NewRequest(http.MethodPost, "http://example.test/mounvix/api/v1/session", strings.NewReader(`{"username":"admin","password":"1234567890"}`))
+	apiLogin := httptest.NewRequest(http.MethodPost, "http://example.test/mounvix/api/v1/session", strings.NewReader(`{"username":"admin","password":"`+testAdminPassword+`"}`))
 	apiLogin.Header.Set("Content-Type", "application/json")
 	apiLoginRec := httptest.NewRecorder()
 	a.ServeHTTP(apiLoginRec, apiLogin)

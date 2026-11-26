@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"mime"
@@ -26,6 +27,21 @@ type sharesView struct {
 	Shares  []*share.Share
 }
 
+func (a *App) createUserShare(rootName, relPath, by string, ttl time.Duration, password string, allowUpload bool) (*share.Share, error) {
+	root, ok := a.findRoot(rootName)
+	if !ok {
+		return nil, errors.New("root not found")
+	}
+	full, err := safeJoin(root.Path, relPath)
+	if err != nil {
+		return nil, errors.New("invalid share path")
+	}
+	if a.isAppDataPath(full) {
+		return nil, errors.New("application data cannot be shared")
+	}
+	return a.shares.Create(rootName, relPath, by, ttl, password, allowUpload)
+}
+
 // handleSharesPage — страница «Шары» в панели (создание/отзыв).
 func (a *App) handleSharesPage(w http.ResponseWriter, r *http.Request) {
 	u, ok := a.cookieUser(r)
@@ -41,7 +57,7 @@ func (a *App) handleSharesPage(w http.ResponseWriter, r *http.Request) {
 			if hours <= 0 {
 				hours = 24 * time.Hour
 			}
-			s, err := a.shares.Create(
+			s, err := a.createUserShare(
 				r.PostFormValue("root"),
 				strings.TrimSpace(r.PostFormValue("path")),
 				u.Name,
@@ -113,7 +129,7 @@ func (a *App) handleSharesAPI(w http.ResponseWriter, r *http.Request) {
 		if ttl <= 0 {
 			ttl = 24 * time.Hour
 		}
-		s, err := a.shares.Create(req.Root, req.Path, u.Name, ttl, req.Password, req.AllowUpload)
+		s, err := a.createUserShare(req.Root, req.Path, u.Name, ttl, req.Password, req.AllowUpload)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -201,6 +217,10 @@ func (a *App) handlePublicShare(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if a.isAppDataPath(target) {
+		http.NotFound(w, r)
+		return
+	}
 	st, err := os.Stat(target)
 	if err != nil {
 		http.NotFound(w, r)
@@ -255,6 +275,9 @@ func (a *App) renderShareDir(w http.ResponseWriter, s *share.Share, target, sub 
 	}
 	rows := make([]row, 0, len(entries))
 	for _, e := range entries {
+		if a.isAppDataPath(filepath.Join(target, e.Name())) {
+			continue
+		}
 		info, err := e.Info()
 		if err != nil {
 			continue

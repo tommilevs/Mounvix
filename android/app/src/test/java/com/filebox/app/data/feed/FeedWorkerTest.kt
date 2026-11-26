@@ -10,8 +10,12 @@ import androidx.work.WorkManager
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,11 +26,23 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], application = android.app.Application::class)
 class FeedWorkerTest {
     private lateinit var context: Context
+    private lateinit var repository: FeedRepository
 
     @Before fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        context.getSharedPreferences("mounvix_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        val preferences = context.getSharedPreferences("mounvix_prefs", Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        repository = FeedRepository(
+            api = FeedApi(OkHttpClient.Builder().cookieJar(FeedCookieJar()).build()),
+            preferences = preferences,
+            secretStore = InMemoryProfileSecretStore(),
+        )
+        FeedRepositoryFactory.factory = { repository }
         WorkManagerTestInitHelper.initializeTestWorkManager(context, Configuration.Builder().build())
+    }
+
+    @After fun tearDown() {
+        FeedRepositoryFactory.factory = { context -> FeedRepository.from(context) }
     }
 
     @Test fun repeatedCardReplacesNotification() {
@@ -49,6 +65,20 @@ class FeedWorkerTest {
         com.mounvix.app.data.notify.FeedNotifier.showNewFeed(context, card)
 
         assertTrue(context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.isEmpty())
+    }
+
+    @Test fun migratesLegacyProfileFixtureBeforeWorkerUsesIt() {
+        val prefs = context.getSharedPreferences("mounvix_prefs", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString("feed_profile_base_url", "http://127.0.0.1:1")
+            .putString("feed_profile_username", "alice")
+            .putString("feed_profile_password", "secret")
+            .commit()
+
+        val profile = repository.loadProfile()
+
+        assertNotNull("legacy worker profile should migrate to secure storage", profile)
+        assertFalse(prefs.contains("feed_profile_password"))
     }
 
     @Test fun retriesNetworkErrorWithoutAdvancingCursor() = runBlocking {

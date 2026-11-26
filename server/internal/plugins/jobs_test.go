@@ -109,6 +109,43 @@ func TestJobStoreListAfterOrdersLifecycleSequencesWithoutSkipping(t *testing.T) 
 	}
 }
 
+func TestJobStoreReturnsPendingPackageOperationPayloadOnlyForInternalRetryHandling(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewJobStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := json.RawMessage(`{"version":"1.0.0","confirmed":true}`)
+	run, err := store.Enqueue(ctx, JobRequest{ActorID: "admin", Kind: "package", PluginID: "demo", JobID: "demo", Operation: "install", Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := store.ListAfter(ctx, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 1 || len(page.Items[0].Payload) != 0 {
+		t.Fatalf("public job list leaked operation payload: %+v", page.Items)
+	}
+	internal, found, err := store.GetPendingPackageOperation(ctx, run.RunID)
+	if err != nil || !found {
+		t.Fatalf("GetPendingPackageOperation() found=%v err=%v", found, err)
+	}
+	if string(internal.Payload) != string(payload) {
+		t.Fatalf("internal payload=%s, want %s", internal.Payload, payload)
+	}
+	encoded, err := json.Marshal(internal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"payload"`) || strings.Contains(string(encoded), `1.0.0`) {
+		t.Fatalf("internal payload was exposed by safe JSON encoding: %s", encoded)
+	}
+	if _, found, err := store.GetPendingPackageOperation(ctx, "missing"); err != nil || found {
+		t.Fatalf("missing package operation found=%v err=%v", found, err)
+	}
+}
+
 func TestJobStoreFinishRedactsSummarySecrets(t *testing.T) {
 	ctx := context.Background()
 	store, err := NewJobStore(t.TempDir())

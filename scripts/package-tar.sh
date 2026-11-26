@@ -13,6 +13,8 @@ trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/mounvix"
 cp "$BIN" "$W/mounvix/mounvix-server"
 cp "$ROOT/packaging/systemd/mounvix.service" "$W/mounvix/mounvix.service"
+cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$W/mounvix/"
+chmod 644 "$W/mounvix/LICENSE" "$W/mounvix/NOTICE"
 printf '{"port":48100,"data_dir":"/var/lib/mounvix"}\n' > "$W/mounvix/config.example.json"
 mkdir -p "$ROOT/dist/tar"
 OUT="$ROOT/dist/tar/mounvix-server_${VERSION}_linux_${GOARCH}.tar.gz"

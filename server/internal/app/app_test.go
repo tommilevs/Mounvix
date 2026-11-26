@@ -16,7 +16,10 @@ import (
 	"time"
 
 	"github.com/tommilevs/Mounvix/server/internal/plugins"
+	"golang.org/x/crypto/bcrypt"
 )
+
+const testAdminPassword = "mounvix-test-admin-password"
 
 func newTestApp(t *testing.T) (*App, string) {
 	t.Helper()
@@ -27,12 +30,31 @@ func newTestApp(t *testing.T) (*App, string) {
 	}
 	cfg := DefaultConfig()
 	cfg.DataDir = filepath.Join(base, "data")
+	seedTestAdmin(t, cfg.DataDir)
 	cfg.Roots = []Root{{Name: "share", Path: share}}
 	a, err := New(cfg, filepath.Join(cfg.DataDir, "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return a, share
+}
+
+func seedTestAdmin(t *testing.T, dataDir string) {
+	t.Helper()
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(testAdminPassword), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := json.Marshal([]*User{{Name: "admin", PassHash: string(hash), Role: "admin"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "users.json"), users, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAuditedJobOperationMapsPluginRcloneAndPackageLifecycle(t *testing.T) {
@@ -176,9 +198,9 @@ func TestOutcomeReconciliationExcludesOriginPluginAndIsIdempotent(t *testing.T) 
 	}
 }
 
-func TestSeedAdminLogin(t *testing.T) {
+func TestAppUsesTestAdminFixture(t *testing.T) {
 	a, _ := newTestApp(t)
-	if _, ok := a.store.Verify("admin", "1234567890"); !ok {
+	if _, ok := a.store.Verify("admin", testAdminPassword); !ok {
 		t.Fatal("seeded admin login failed")
 	}
 	if _, ok := a.store.Verify("admin", "wrong"); ok {
@@ -204,7 +226,7 @@ func TestPanelLoginFlow(t *testing.T) {
 		t.Fatalf("login page: status=%d", resp.StatusCode)
 	}
 
-	resp, err = c.PostForm(srv.URL+"/login", url.Values{"username": {"admin"}, "password": {"1234567890"}})
+	resp, err = c.PostForm(srv.URL+"/login", url.Values{"username": {"admin"}, "password": {testAdminPassword}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,13 +284,13 @@ func TestWebDAV(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	resp = do("PROPFIND", "/dav/share/", "admin", "1234567890", nil)
+	resp = do("PROPFIND", "/dav/share/", "admin", testAdminPassword, nil)
 	if resp.StatusCode != 207 {
 		t.Fatalf("PROPFIND with auth: %d, want 207", resp.StatusCode)
 	}
 	resp.Body.Close()
 
-	resp = do("PUT", "/dav/share/hello.txt", "admin", "1234567890", strings.NewReader("hello"))
+	resp = do("PUT", "/dav/share/hello.txt", "admin", testAdminPassword, strings.NewReader("hello"))
 	if resp.StatusCode != 201 && resp.StatusCode != 204 {
 		t.Fatalf("PUT: %d", resp.StatusCode)
 	}
@@ -310,7 +332,7 @@ func TestSettingsLangSwitch(t *testing.T) {
 	defer srv.Close()
 	jar, _ := cookiejar.New(nil)
 	c := &http.Client{Jar: jar}
-	if resp, err := c.PostForm(srv.URL+"/login", url.Values{"username": {"admin"}, "password": {"1234567890"}}); err == nil {
+	if resp, err := c.PostForm(srv.URL+"/login", url.Values{"username": {"admin"}, "password": {testAdminPassword}}); err == nil {
 		resp.Body.Close()
 	}
 	resp, err := c.PostForm(srv.URL+"/settings", url.Values{"action": {"lang"}, "lang": {"en"}})

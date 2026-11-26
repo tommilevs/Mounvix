@@ -14,11 +14,12 @@ data class ServerEventQuietHours(
     }
 }
 
-/** Notification payload intentionally excludes target routes and other server details. */
+/** Notification content is limited to safe summary fields; the validated route is tap-only data. */
 data class ServerEventAlert(
     val eventId: String,
     val kind: String,
     val summary: String,
+    val targetRoute: String,
 )
 
 data class ServerEventSyncPlan(
@@ -80,7 +81,7 @@ object ServerEventSyncPolicy {
         val alerts = if (mayAlert) {
             page.items.asSequence()
                 .filter { it.seq > currentCursor && !it.isRead && it.eventId !in alreadyVisible }
-                .map { ServerEventAlert(it.eventId, it.kind, it.summary) }
+                .map { ServerEventAlert(it.eventId, it.kind, it.summary, it.targetRoute) }
                 .toList()
         } else {
             emptyList()

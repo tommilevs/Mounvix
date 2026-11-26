@@ -9,11 +9,19 @@ import java.time.LocalTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** Narrow repository seam so worker behavior can be tested without a platform Android Keystore. */
+internal object FeedRepositoryFactory {
+    @Volatile
+    var factory: (Context) -> FeedRepository = { context -> FeedRepository.from(context) }
+
+    fun create(context: Context): FeedRepository = factory(context.applicationContext)
+}
+
 class FeedWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val prefs = applicationContext.getSharedPreferences("mounvix_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean(NOTIFICATIONS_ENABLED, false)) return@withContext Result.success()
-        val repository = FeedRepository.from(applicationContext)
+        val repository = FeedRepositoryFactory.create(applicationContext)
         val profile = repository.loadProfile() ?: return@withContext Result.success()
         repository.initializeCursorIfAbsent(Instant.now().toString())
         fun stillActive() = repository.loadProfile() == profile && prefs.getBoolean(NOTIFICATIONS_ENABLED, false)

@@ -2,15 +2,25 @@ package app
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+)
+
+const (
+	bootstrapAdminName         = "admin"
+	legacyDefaultAdminPassword = "1234567890"
+	adminBootstrapPasswordFile = "admin-bootstrap-password"
 )
 
 // User — учётная запись. ACL: имя корня -> "r" | "rw".
@@ -49,21 +59,35 @@ type Store struct {
 func NewStore(dir string) (*Store, error) {
 	s := &Store{Dir: dir, sessions: map[string]session{}}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create user store directory: %w", err)
 	}
-	s.auditF, _ = os.OpenFile(filepath.Join(dir, "audit.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	s.auditF, _ = os.OpenFile(filepath.Join(dir, "audit.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err := s.load(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load users: %w", err)
 	}
+	usersPath := filepath.Join(dir, "users.json")
+	if _, err := os.Stat(usersPath); err == nil {
+		if err := os.Chmod(usersPath, 0o600); err != nil {
+			return nil, fmt.Errorf("secure users.json permissions: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect users.json permissions: %w", err)
+	}
+
 	if len(s.users) == 0 {
-		hash, err := bcrypt.GenerateFromPassword([]byte("1234567890"), bcrypt.DefaultCost)
-		if err != nil {
+		if err := s.seedInitialAdmin(); err != nil {
 			return nil, err
 		}
-		s.users = []*User{{Name: "admin", PassHash: string(hash), Role: "admin"}}
-		if err := s.saveLocked(); err != nil {
+		return s, nil
+	}
+
+	admin := s.findAdmin()
+	if admin != nil && isLegacyDefaultAdmin(admin) {
+		if err := s.rotateLegacyDefaultAdmin(admin); err != nil {
 			return nil, err
 		}
+	} else if err := s.removeStaleBootstrapPassword(admin); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -71,12 +95,139 @@ func NewStore(dir string) (*Store, error) {
 func (s *Store) load() error {
 	b, err := os.ReadFile(filepath.Join(s.Dir, "users.json"))
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return err
 	}
 	return json.Unmarshal(b, &s.users)
+}
+
+func (s *Store) seedInitialAdmin() error {
+	password, err := s.ensureBootstrapPassword()
+	if err != nil {
+		return fmt.Errorf("create initial admin password: %w", err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash initial admin password: %w", err)
+	}
+	s.users = []*User{{Name: bootstrapAdminName, PassHash: string(hash), Role: "admin"}}
+	if err := s.saveLocked(); err != nil {
+		return fmt.Errorf("save initial admin user: %w", err)
+	}
+	s.logBootstrapPasswordPath()
+	return nil
+}
+
+func (s *Store) findAdmin() *User {
+	for _, user := range s.users {
+		if user.Name == bootstrapAdminName && user.IsAdmin() {
+			return user
+		}
+	}
+	return nil
+}
+
+func isLegacyDefaultAdmin(user *User) bool {
+	return user != nil && user.IsAdmin() && user.Name == bootstrapAdminName &&
+		bcrypt.CompareHashAndPassword([]byte(user.PassHash), []byte(legacyDefaultAdminPassword)) == nil
+}
+
+func (s *Store) rotateLegacyDefaultAdmin(admin *User) error {
+	password, err := s.ensureBootstrapPassword()
+	if err != nil {
+		return fmt.Errorf("rotate legacy default admin password: %w", err)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash replacement admin password: %w", err)
+	}
+	admin.PassHash = string(hash)
+	if err := s.saveLocked(); err != nil {
+		return fmt.Errorf("save rotated admin password: %w", err)
+	}
+	s.logBootstrapPasswordPath()
+	return nil
+}
+
+func (s *Store) ensureBootstrapPassword() (string, error) {
+	path := filepath.Join(s.Dir, adminBootstrapPasswordFile)
+	data, err := os.ReadFile(path)
+	if err == nil {
+		password := strings.TrimSpace(string(data))
+		decoded, decodeErr := base64.RawURLEncoding.DecodeString(password)
+		if decodeErr != nil || len(decoded) != 32 {
+			return "", errors.New("admin bootstrap password file is invalid")
+		}
+		return password, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read admin bootstrap password: %w", err)
+	}
+
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate admin bootstrap password: %w", err)
+	}
+	password := base64.RawURLEncoding.EncodeToString(raw)
+	file, err := os.CreateTemp(s.Dir, ".admin-bootstrap-*")
+	if err != nil {
+		return "", fmt.Errorf("create temporary admin bootstrap file: %w", err)
+	}
+	tempPath := file.Name()
+	closed := false
+	defer func() {
+		if !closed {
+			if closeErr := file.Close(); closeErr != nil {
+				log.Printf("mounvix: close temporary admin bootstrap file %s: %v", tempPath, closeErr)
+			}
+		}
+		if removeErr := os.Remove(tempPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			log.Printf("mounvix: remove temporary admin bootstrap file %s: %v", tempPath, removeErr)
+		}
+	}()
+	if err := file.Chmod(0o600); err != nil {
+		return "", fmt.Errorf("secure temporary admin bootstrap file: %w", err)
+	}
+	if _, err := file.WriteString(password + "\n"); err != nil {
+		return "", fmt.Errorf("write temporary admin bootstrap file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return "", fmt.Errorf("sync temporary admin bootstrap file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		closed = true
+		return "", fmt.Errorf("close temporary admin bootstrap file: %w", err)
+	}
+	closed = true
+	if err := os.Rename(tempPath, path); err != nil {
+		return "", fmt.Errorf("install admin bootstrap password file: %w", err)
+	}
+	return password, nil
+}
+
+func (s *Store) removeStaleBootstrapPassword(admin *User) error {
+	path := filepath.Join(s.Dir, adminBootstrapPasswordFile)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read admin bootstrap password file: %w", err)
+	}
+	password := strings.TrimSpace(string(data))
+	if admin != nil && password != "" && bcrypt.CompareHashAndPassword([]byte(admin.PassHash), []byte(password)) == nil {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale admin bootstrap password file: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) logBootstrapPasswordPath() {
+	log.Printf("mounvix: initial admin password is stored in %s; read it locally and change it in the panel", filepath.Join(s.Dir, adminBootstrapPasswordFile))
 }
 
 func (s *Store) saveLocked() error {
@@ -86,10 +237,16 @@ func (s *Store) saveLocked() error {
 	}
 	p := filepath.Join(s.Dir, "users.json")
 	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return fmt.Errorf("write temporary users.json: %w", err)
 	}
-	return os.Rename(tmp, p)
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		return fmt.Errorf("secure temporary users.json: %w", err)
+	}
+	if err := os.Rename(tmp, p); err != nil {
+		return fmt.Errorf("replace users.json: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) Users() []*User {
@@ -157,7 +314,16 @@ func (s *Store) SetPassword(name, pass string) error {
 				return err
 			}
 			u.PassHash = string(hash)
-			return s.saveLocked()
+			if err := s.saveLocked(); err != nil {
+				return err
+			}
+			if name == bootstrapAdminName {
+				path := filepath.Join(s.Dir, adminBootstrapPasswordFile)
+				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("remove initial admin password file: %w", err)
+				}
+			}
+			return nil
 		}
 	}
 	return errors.New("no such user")

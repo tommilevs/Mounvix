@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 const (
@@ -422,6 +423,7 @@ func parsePackageControl(contents []byte) (PackageMetadata, error) {
 
 // PackageInstaller performs fixed opkg/dpkg actions for verified artifacts only.
 type PackageInstaller struct {
+	mu               sync.RWMutex
 	managerPath      string
 	format           string
 	runner           CommandRunner
@@ -452,9 +454,64 @@ func newPackageInstaller(configPath string, runner CommandRunner, metadata Packa
 	return installer
 }
 
+// SetCatalogVerified enables installation only after the current signed catalog is verified.
+func (installer *PackageInstaller) SetCatalogVerified(verified bool) {
+	if installer == nil {
+		return
+	}
+	installer.mu.Lock()
+	installer.mutationsEnabled = verified && installer.managerPath != "" && installer.runner != nil && installer.metadata != nil
+	installer.mu.Unlock()
+}
+
+// CanInstall reports whether a verified catalog and supported package manager permit installation.
+func (installer *PackageInstaller) CanInstall() bool {
+	if installer == nil {
+		return false
+	}
+	installer.mu.RLock()
+	enabled := installer.mutationsEnabled
+	installer.mu.RUnlock()
+	return enabled && installer.managerPath != "" && installer.runner != nil && installer.metadata != nil
+}
+
+// InstallFormat reports the package format accepted by this platform's fixed package manager.
+func (installer *PackageInstaller) InstallFormat() (string, bool) {
+	if installer == nil || installer.managerPath == "" || installer.runner == nil || installer.metadata == nil {
+		return "", false
+	}
+	return installer.format, true
+}
+
+// InstallCatalogPackage downloads and installs only a catalog-bound, hash-verified artifact.
+func (installer *PackageInstaller) InstallCatalogPackage(ctx context.Context, verifiedID string, asset CatalogAsset) error {
+	if !installer.CanInstall() {
+		return errors.New("package mutations are disabled for this platform")
+	}
+	if ctx == nil {
+		return errors.New("package install context is required")
+	}
+	if !validInstallID(verifiedID) || asset.ID != verifiedID || !asset.trusted() {
+		return errors.New("package ID or catalog asset is not verified")
+	}
+	artifact, err := FetchVerifiedArtifact(ctx, asset)
+	if err != nil {
+		return fmt.Errorf("fetch verified catalog package: %w", err)
+	}
+	installErr := installer.Install(ctx, verifiedID, artifact)
+	if installErr != nil {
+		installErr = fmt.Errorf("install verified package: %w", installErr)
+	}
+	cleanupErr := artifact.Cleanup()
+	if cleanupErr != nil {
+		cleanupErr = fmt.Errorf("remove downloaded package artifact: %w", cleanupErr)
+	}
+	return errors.Join(installErr, cleanupErr)
+}
+
 // Install validates signed identity and package control metadata before invoking the manager.
 func (installer *PackageInstaller) Install(ctx context.Context, verifiedID string, artifact VerifiedArtifact) error {
-	if installer == nil || !installer.mutationsEnabled || installer.managerPath == "" || installer.runner == nil || installer.metadata == nil {
+	if !installer.CanInstall() {
 		return errors.New("package mutations are disabled for this platform")
 	}
 	if ctx == nil {

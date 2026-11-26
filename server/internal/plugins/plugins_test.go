@@ -314,6 +314,52 @@ func TestRegistryPackagePrecedenceAndSourceSpecificState(t *testing.T) {
 	t.Fatal("legacy fallback missing after package removal")
 }
 
+func TestRegistryReloadPackagesAfterInstallAndPreservesEnabledState(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "system-plugins")
+	registry, err := NewRegistry(dir, root, "1.0.0", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := registry.LookupSource("demo", SourcePackage); found {
+		t.Fatal("package unexpectedly exists before installation")
+	}
+	packageDir := filepath.Join(root, "demo")
+	if err := os.MkdirAll(filepath.Join(packageDir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(packageDir, "bin", "demo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(packageDir, "plugin.json")
+	writeManifest := func(version string) {
+		t.Helper()
+		manifest := `{"id":"demo","name":"Demo","version":"` + version + `","api":1,"author":"test","description":"test","executable":"bin/demo"}`
+		if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeManifest("1.0.0")
+	if err := registry.ReloadPackages(); err != nil {
+		t.Fatalf("ReloadPackages() after install: %v", err)
+	}
+	installed, found := registry.LookupSource("demo", SourcePackage)
+	if !found || installed.Version != "1.0.0" || installed.Enabled {
+		t.Fatalf("installed package state=%+v found=%v", installed, found)
+	}
+	if err := registry.SetSourceEnabledAs("admin", "demo", SourcePackage, true); err != nil {
+		t.Fatal(err)
+	}
+	writeManifest("1.1.0")
+	if err := registry.ReloadPackages(); err != nil {
+		t.Fatalf("ReloadPackages() after update: %v", err)
+	}
+	updated, found := registry.LookupSource("demo", SourcePackage)
+	if !found || updated.Version != "1.1.0" || !updated.Enabled {
+		t.Fatalf("updated package state=%+v found=%v; enabled state must be preserved", updated, found)
+	}
+}
+
 func TestRegistryLegacyStateMigrationIsReadOnlyUntilMutation(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "plugins"), 0o755); err != nil {

@@ -53,17 +53,21 @@ type Report struct {
 }
 
 type Manager struct {
-	mu         sync.Mutex
-	dir        string
-	path       string
-	reportPath string
-	jobs       []*Job
-	last       map[string]Report
-	onReport   func(Report)
+	mu            sync.Mutex
+	dir           string
+	path          string
+	reportPath    string
+	jobs          []*Job
+	last          map[string]Report
+	onReport      func(Report)
+	excludedPaths []string
 }
 
-func New(dir string) (*Manager, error) {
-	m := &Manager{dir: dir, path: filepath.Join(dir, "backup-jobs.json"), reportPath: filepath.Join(dir, "backup-reports.json"), last: map[string]Report{}}
+func New(dir string, excludedPaths ...string) (*Manager, error) {
+	m := &Manager{
+		dir: dir, path: filepath.Join(dir, "backup-jobs.json"), reportPath: filepath.Join(dir, "backup-reports.json"),
+		last: map[string]Report{}, excludedPaths: append([]string(nil), excludedPaths...),
+	}
 	if b, err := os.ReadFile(m.path); err == nil {
 		if err := json.Unmarshal(b, &m.jobs); err != nil {
 			return nil, fmt.Errorf("load backup jobs: %w", err)
@@ -83,6 +87,38 @@ func New(dir string) (*Manager, error) {
 	}
 	m.Start(context.Background())
 	return m, nil
+}
+
+func (m *Manager) isExcludedPath(path string) bool {
+	candidate, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	for _, excluded := range m.excludedPaths {
+		excluded, err := filepath.Abs(excluded)
+		if err != nil {
+			continue
+		}
+		if filepath.Clean(candidate) == filepath.Clean(excluded) {
+			return true
+		}
+		candidateInfo, candidateErr := os.Stat(candidate)
+		excludedInfo, excludedErr := os.Stat(excluded)
+		if candidateErr == nil && excludedErr == nil && os.SameFile(candidateInfo, excludedInfo) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) isExcludedName(name string) bool {
+	base := filepath.Base(name)
+	for _, excluded := range m.excludedPaths {
+		if base == filepath.Base(excluded) {
+			return true
+		}
+	}
+	return false
 }
 
 // SetReportCallback registers a callback invoked after a terminal report is durable.
@@ -133,6 +169,10 @@ func (m *Manager) Restore(ctx context.Context, id, dest string) (Report, error) 
 			return ctx.Err()
 		default:
 		}
+		if !d.IsDir() && (m.isExcludedPath(p) || m.isExcludedName(d.Name())) {
+			rep.Skipped++
+			return nil
+		}
 		if d.IsDir() {
 			return nil
 		}
@@ -146,7 +186,12 @@ func (m *Manager) Restore(ctx context.Context, id, dest string) (Report, error) 
 			rep.Errors = append(rep.Errors, p+": "+err.Error())
 			return nil
 		}
-		if err := copyLocal(p, filepath.Join(dest, rel), info); err != nil {
+		targetPath := filepath.Join(dest, rel)
+		if m.isExcludedPath(targetPath) || m.isExcludedName(rel) {
+			rep.Skipped++
+			return nil
+		}
+		if err := copyLocal(p, targetPath, info); err != nil {
 			rep.Errors = append(rep.Errors, rel+": "+err.Error())
 			return nil
 		}
@@ -319,6 +364,10 @@ func (m *Manager) Run(ctx context.Context, id string) (Report, error) {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+		if !d.IsDir() && (m.isExcludedPath(p) || m.isExcludedName(d.Name())) {
+			rep.Skipped++
+			return nil
 		}
 		if d.IsDir() {
 			return nil

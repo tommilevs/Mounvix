@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,8 +43,9 @@ type signatureEnvelope struct {
 
 // Catalog is the signed plugin index. Only VerifyCatalog returns a trusted catalog.
 type Catalog struct {
-	Plugins  []CatalogEntry `json:"plugins"`
-	verified bool
+	Plugins     []CatalogEntry `json:"plugins"`
+	SignerKeyID string         `json:"-"`
+	verified    bool
 }
 
 // CatalogEntry describes one plugin release and its platform packages.
@@ -90,12 +93,56 @@ func assetBinding(asset CatalogAsset) [32]byte {
 type CatalogStatus struct {
 	ReadOnly bool   `json:"read_only"`
 	IndexURL string `json:"index_url"`
+	KeyID    string `json:"key_id,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 }
 
-// DefaultCatalogStatus remains read-only until release keys and a signed index are provisioned.
+// Verified reports whether this catalog passed signature and metadata validation.
+func (catalog Catalog) Verified() bool { return catalog.verified }
+
+// DefaultCatalogStatus remains read-only until a signed index has been fetched and verified.
 func DefaultCatalogStatus() CatalogStatus {
-	return CatalogStatus{ReadOnly: true, IndexURL: CatalogIndexURL, Reason: "release signing keys and signed catalog are not configured"}
+	return CatalogStatus{ReadOnly: true, IndexURL: CatalogIndexURL, Reason: "the signed plugin catalog has not been verified"}
+}
+
+const (
+	CatalogCurrentKeyID = "mounvix-catalog-2026-current"
+	CatalogNextKeyID    = "mounvix-catalog-2026-next"
+
+	catalogCurrentPublicKeyBase64 = "3qHgqPOFca+5k5ncuRNDJaKc7Qx7iyR65BhV/gqbm38="
+	catalogNextPublicKeyBase64    = "0OWAO4p+HRieahrY0TXu69Qdx+gHcxhVawYbAi+huoQ="
+	catalogCurrentFingerprint     = "cf466d0c51ed5b9cfbd497c6794ba854e4547623f3076d6db50a30cf67511085"
+	catalogNextFingerprint        = "7aa86be5d26c5726cd6ce47969f6f45bb26cc854af8a1774d462c226ab608320"
+)
+
+// ProductionCatalogKeys returns the pinned current and next Ed25519 public keys.
+// A malformed key or fingerprint mismatch fails closed by returning no keys.
+func ProductionCatalogKeys() []CatalogKey {
+	current := decodePinnedCatalogKey(catalogCurrentPublicKeyBase64, catalogCurrentFingerprint)
+	next := decodePinnedCatalogKey(catalogNextPublicKeyBase64, catalogNextFingerprint)
+	if current == nil || next == nil {
+		return nil
+	}
+	keys := []CatalogKey{
+		{ID: CatalogCurrentKeyID, PublicKey: current, Role: "current"},
+		{ID: CatalogNextKeyID, PublicKey: next, Role: "next"},
+	}
+	if !CatalogVerificationReady(keys) {
+		return nil
+	}
+	return keys
+}
+
+func decodePinnedCatalogKey(encoded, expectedFingerprint string) ed25519.PublicKey {
+	publicKey, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return nil
+	}
+	fingerprint := sha256.Sum256(publicKey)
+	if !strings.EqualFold(hex.EncodeToString(fingerprint[:]), expectedFingerprint) {
+		return nil
+	}
+	return ed25519.PublicKey(publicKey)
 }
 
 // CatalogVerificationReady reports whether both current and next production key roles exist.
@@ -165,8 +212,246 @@ func VerifyCatalog(indexBytes, signatureBytes []byte, keys []CatalogKey) (Catalo
 	if err := catalog.validateAndMark(); err != nil {
 		return Catalog{}, err
 	}
+	catalog.SignerKeyID = envelope.KeyID
 	catalog.verified = true
 	return catalog, nil
+}
+
+// SignCatalog signs the exact catalog bytes with a private key matching a pinned key ID.
+// It verifies the generated signature and catalog before returning the detached envelope.
+func SignCatalog(indexBytes []byte, keyID string, privateKey ed25519.PrivateKey, trustedKeys []CatalogKey) ([]byte, error) {
+	if !CatalogVerificationReady(trustedKeys) {
+		return nil, errors.New("current and next catalog verification keys are required")
+	}
+	if len(indexBytes) == 0 || len(indexBytes) > maxCatalogIndexBytes {
+		return nil, errors.New("catalog index size is invalid")
+	}
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return nil, errors.New("catalog signing private key has invalid length")
+	}
+	publicKey, ok := privateKey.Public().(ed25519.PublicKey)
+	if !ok || len(publicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("catalog signing private key is invalid")
+	}
+	trusted := false
+	for _, key := range trustedKeys {
+		if key.ID != keyID {
+			continue
+		}
+		if len(key.PublicKey) != ed25519.PublicKeySize || !bytes.Equal(publicKey, key.PublicKey) {
+			return nil, errors.New("catalog signing private key does not match the pinned key ID")
+		}
+		trusted = true
+		break
+	}
+	if !trusted {
+		return nil, fmt.Errorf("catalog signing key ID %q is not pinned", keyID)
+	}
+	envelope, err := json.Marshal(signatureEnvelope{KeyID: keyID, Signature: base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, indexBytes))})
+	if err != nil {
+		return nil, fmt.Errorf("encode catalog signature envelope: %w", err)
+	}
+	envelope = append(envelope, '\n')
+	if _, err := VerifyCatalog(indexBytes, envelope, trustedKeys); err != nil {
+		return nil, fmt.Errorf("verify generated catalog signature: %w", err)
+	}
+	return envelope, nil
+}
+
+// CatalogSource fetches and verifies one signed catalog snapshot.
+type CatalogSource interface {
+	Fetch(context.Context) (Catalog, error)
+}
+
+type catalogFetcher struct {
+	client       *http.Client
+	indexURL     string
+	signatureURL string
+	keys         []CatalogKey
+	cacheTTL     time.Duration
+	mu           sync.Mutex
+	inFlight     chan struct{}
+	cached       Catalog
+	cachedAt     time.Time
+	cacheValid   bool
+}
+
+func newCatalogFetcher(client *http.Client, indexURL, signatureURL string, keys []CatalogKey) *catalogFetcher {
+	copiedKeys := make([]CatalogKey, len(keys))
+	for i, key := range keys {
+		copiedKeys[i] = key
+		copiedKeys[i].PublicKey = append(ed25519.PublicKey(nil), key.PublicKey...)
+	}
+	return &catalogFetcher{client: client, indexURL: indexURL, signatureURL: signatureURL, keys: copiedKeys, cacheTTL: time.Minute}
+}
+
+// NewProductionCatalogFetcher uses only the repository's pinned HTTPS endpoints and public keys.
+func NewProductionCatalogFetcher() CatalogSource {
+	return newCatalogFetcher(&http.Client{Timeout: 15 * time.Second}, CatalogIndexURL, CatalogSignatureURL, ProductionCatalogKeys())
+}
+
+func (fetcher *catalogFetcher) Fetch(ctx context.Context) (Catalog, error) {
+	if fetcher == nil || ctx == nil {
+		return Catalog{}, errors.New("catalog fetcher and context are required")
+	}
+	if err := ctx.Err(); err != nil {
+		return Catalog{}, err
+	}
+	if fetcher.client == nil {
+		return Catalog{}, errors.New("catalog HTTP client is required")
+	}
+	if !CatalogVerificationReady(fetcher.keys) {
+		return Catalog{}, errors.New("current and next catalog verification keys are required")
+	}
+	if err := validateCatalogDocumentURLs(fetcher.indexURL, fetcher.signatureURL); err != nil {
+		return Catalog{}, err
+	}
+	for {
+		fetcher.mu.Lock()
+		if fetcher.cacheValid && fetcher.cacheTTL > 0 && time.Since(fetcher.cachedAt) < fetcher.cacheTTL {
+			catalog := cloneCatalog(fetcher.cached)
+			fetcher.mu.Unlock()
+			return catalog, nil
+		}
+		if inFlight := fetcher.inFlight; inFlight != nil {
+			fetcher.mu.Unlock()
+			select {
+			case <-inFlight:
+				continue
+			case <-ctx.Done():
+				return Catalog{}, fmt.Errorf("wait for catalog fetch: %w", ctx.Err())
+			}
+		}
+		inFlight := make(chan struct{})
+		fetcher.inFlight = inFlight
+		fetcher.mu.Unlock()
+
+		catalog, err := fetcher.fetch(ctx)
+
+		fetcher.mu.Lock()
+		if err == nil {
+			fetcher.cached = cloneCatalog(catalog)
+			fetcher.cachedAt = time.Now()
+			fetcher.cacheValid = true
+		}
+		fetcher.inFlight = nil
+		close(inFlight)
+		fetcher.mu.Unlock()
+		if err != nil {
+			return Catalog{}, err
+		}
+		return cloneCatalog(catalog), nil
+	}
+}
+
+func (fetcher *catalogFetcher) fetch(ctx context.Context) (Catalog, error) {
+	index, err := fetchCatalogDocument(ctx, fetcher.client, fetcher.indexURL, maxCatalogIndexBytes)
+	if err != nil {
+		return Catalog{}, fmt.Errorf("fetch catalog index: %w", err)
+	}
+	signature, err := fetchCatalogDocument(ctx, fetcher.client, fetcher.signatureURL, maxSignatureEnvelopeSize)
+	if err != nil {
+		return Catalog{}, fmt.Errorf("fetch catalog signature: %w", err)
+	}
+	catalog, err := VerifyCatalog(index, signature, fetcher.keys)
+	if err != nil {
+		return Catalog{}, fmt.Errorf("verify fetched catalog: %w", err)
+	}
+	return catalog, nil
+}
+
+func cloneCatalog(catalog Catalog) Catalog {
+	clone := catalog
+	if catalog.Plugins == nil {
+		return clone
+	}
+	clone.Plugins = make([]CatalogEntry, len(catalog.Plugins))
+	for i, entry := range catalog.Plugins {
+		cloneEntry := entry
+		cloneEntry.Arch = append([]string(nil), entry.Arch...)
+		if entry.Assets != nil {
+			cloneEntry.Assets = make(map[string]CatalogAsset, len(entry.Assets))
+			for format, asset := range entry.Assets {
+				cloneEntry.Assets[format] = asset
+			}
+		}
+		clone.Plugins[i] = cloneEntry
+	}
+	return clone
+}
+
+func validateCatalogDocumentURLs(indexURL, signatureURL string) error {
+	index, err := url.Parse(indexURL)
+	if err != nil {
+		return fmt.Errorf("parse catalog index URL: %w", err)
+	}
+	signature, err := url.Parse(signatureURL)
+	if err != nil {
+		return fmt.Errorf("parse catalog signature URL: %w", err)
+	}
+	for _, candidate := range []*url.URL{index, signature} {
+		if candidate.Scheme != "https" || candidate.Host == "" || candidate.User != nil || candidate.RawQuery != "" || candidate.ForceQuery || candidate.Fragment != "" || candidate.Opaque != "" || strings.Contains(candidate.EscapedPath(), "%") || path.Clean(candidate.Path) != candidate.Path {
+			return errors.New("catalog document URL is not a canonical HTTPS URL")
+		}
+	}
+	if !strings.EqualFold(index.Host, signature.Host) || path.Dir(index.Path) != path.Dir(signature.Path) || path.Base(index.Path) != "index.json" || path.Base(signature.Path) != "index.json.sig" {
+		return errors.New("catalog index and signature URLs must share one trusted directory")
+	}
+	return nil
+}
+
+func fetchCatalogDocument(ctx context.Context, client *http.Client, documentURL string, maxBytes int) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, documentURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create catalog request: %w", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept-Encoding", "identity")
+	safeClient := *client
+	safeClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := safeClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("request catalog document: %w", err)
+	}
+	if response.Body == nil {
+		return nil, errors.New("catalog response has no body")
+	}
+	if response.StatusCode != http.StatusOK {
+		statusErr := fmt.Errorf("catalog server returned HTTP %d", response.StatusCode)
+		if closeErr := response.Body.Close(); closeErr != nil {
+			return nil, errors.Join(statusErr, fmt.Errorf("close catalog response: %w", closeErr))
+		}
+		return nil, statusErr
+	}
+	if response.ContentLength > int64(maxBytes) {
+		if closeErr := response.Body.Close(); closeErr != nil {
+			return nil, errors.Join(errors.New("catalog document exceeds size limit"), fmt.Errorf("close catalog response: %w", closeErr))
+		}
+		return nil, errors.New("catalog document exceeds size limit")
+	}
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, int64(maxBytes)+1))
+	closeErr := response.Body.Close()
+	if readErr != nil || closeErr != nil {
+		return nil, errors.Join(wrapCatalogReadError(readErr), wrapCatalogCloseError(closeErr))
+	}
+	if len(body) > maxBytes || (response.ContentLength >= 0 && response.ContentLength != int64(len(body))) {
+		return nil, errors.New("catalog document size is invalid")
+	}
+	return body, nil
+}
+
+func wrapCatalogReadError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("read catalog response: %w", err)
+}
+
+func wrapCatalogCloseError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("close catalog response: %w", err)
 }
 
 func decodeSingleJSON(data []byte, dst any) error {

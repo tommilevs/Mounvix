@@ -5,6 +5,12 @@ import com.mounvix.app.data.autoupload.AutouploadLegacyCutoffBootstrap
 import com.mounvix.app.data.autoupload.AutouploadScheduler
 import com.mounvix.app.data.autoupload.RemoteSourceFactory
 import com.mounvix.app.data.db.AppDatabase
+import com.mounvix.app.data.feed.FeedRepository
+import com.mounvix.app.data.feed.FeedScheduler
+import com.mounvix.app.data.feed.FeedWorker
+import com.mounvix.app.data.feed.ServerEventNotifier
+import com.mounvix.app.data.feed.ServerEventScheduler
+import com.mounvix.app.data.feed.ServerEventStatusStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,10 +49,13 @@ class MounvixApp : Application() {
                 }
             }
         }
-        if (prefs.getBoolean(com.mounvix.app.data.feed.FeedWorker.NOTIFICATIONS_ENABLED, false) &&
-            com.mounvix.app.data.feed.FeedRepository.from(this).loadProfile() != null
-        ) {
-            com.mounvix.app.data.feed.FeedScheduler.schedule(this)
+        val profile = FeedRepository.from(this).loadProfile()
+        if (prefs.getBoolean(FeedWorker.NOTIFICATIONS_ENABLED, false) && profile != null) {
+            FeedScheduler.schedule(this)
+        }
+        if (profile != null && ServerEventStatusStore(prefs).canPoll(profile)) {
+            ServerEventNotifier.createChannel(this)
+            ServerEventScheduler.schedule(this, profile)
         }
     }
 }

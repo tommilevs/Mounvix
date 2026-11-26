@@ -382,6 +382,37 @@ func (s *JobStore) ListAfter(ctx context.Context, afterSeq uint64, limit int) (J
 	return page, nil
 }
 
+// GetPendingPackageOperation returns an internal copy of a queued or running install/update payload.
+// The payload remains excluded from normal job-list and JSON responses.
+func (s *JobStore) GetPendingPackageOperation(ctx context.Context, runID string) (JobRecord, bool, error) {
+	if s == nil {
+		return JobRecord{}, false, errors.New("job store is required")
+	}
+	if ctx == nil {
+		return JobRecord{}, false, errors.New("job context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return JobRecord{}, false, err
+	}
+	if runID == "" {
+		return JobRecord{}, false, errors.New("job run id is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, item := range s.journal.Records {
+		if item.Record.RunID != runID {
+			continue
+		}
+		if item.Record.Kind != "package" || (item.Record.Operation != "install" && item.Record.Operation != "update") || (item.Record.Status != JobStatusQueued && item.Record.Status != JobStatusRunning) {
+			return JobRecord{}, false, nil
+		}
+		record := safeJobRecord(item.Record)
+		record.Payload = append(json.RawMessage(nil), item.Payload...)
+		return record, true, nil
+	}
+	return JobRecord{}, false, nil
+}
+
 func (s *JobStore) record(runID string) (JobRecord, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
